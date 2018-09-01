@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #include "drivers/io_types.h"
+#include "drivers/dma.h"
 #include "rcc_types.h"
 
 typedef uint16_t captureCompare_t;        // 16 bit on both 103 and 303, just register access must be 32bit sometimes (use timCCR_t)
@@ -95,6 +96,7 @@ typedef struct timerHardware_s {
     uint8_t alternateFunction;
 #endif
     uint32_t usageFlags;
+    dmaTag_t dmaTag;
 } timerHardware_t;
 
 enum {
