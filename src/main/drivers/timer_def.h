@@ -20,25 +20,46 @@
 #include "drivers/dma.h"
 
 // Macros expand to keep DMA descriptor table compatible with Betaflight
-#define DEF_TIM_DMAMAP(variant, timch) CONCAT(DEF_TIM_DMAMAP__, PP_CALL(CONCAT(DEF_TIM_DMAMAP_VARIANT__, variant), CONCAT(DEF_TIM_DMA__BTCH_, timch), DMA_VARIANT_MISSING, DMA_VARIANT_MISSING))
+#define DEF_TIM_DMAMAP(variant, timch) CONCAT(DEF_TIM_DMAMAP__, PP_CALL(CONCAT(DEF_TIM_DMAMAP_VARIANT__, variant), CONCAT(DEF_TIM_DMA__, DEF_TIM_TCH2BTCH(timch)), DMA_VARIANT_MISSING, DMA_VARIANT_MISSING))
 #define DEF_TIM_DMAMAP_VARIANT__0(_0, ...)         _0
 #define DEF_TIM_DMAMAP_VARIANT__1(_0, _1, ...)     _1
 #define DEF_TIM_DMAMAP_VARIANT__2(_0, _1, _2, ...) _2
 
-#define DEF_TIM_AF(timch, pin)                  CONCAT(DEF_TIM_AF__, DEF_TIM_AF__ ## pin ## __ ## timch)
-#define DEF_TIM_AF__D(af_n)                     GPIO_AF_ ## af_n
+// map to base channel (strip N from channel); works only when channel N exists
+#define DEF_TIM_TCH2BTCH(timch) CONCAT(BTCH_, timch)
+#define BTCH_TIM1_CH1N BTCH_TIM1_CH1
+#define BTCH_TIM1_CH2N BTCH_TIM1_CH2
+#define BTCH_TIM1_CH3N BTCH_TIM1_CH3
+
+#define BTCH_TIM8_CH1N BTCH_TIM8_CH1
+#define BTCH_TIM8_CH2N BTCH_TIM8_CH2
+#define BTCH_TIM8_CH3N BTCH_TIM8_CH3
+
+#define BTCH_TIM20_CH1N BTCH_TIM20_CH1
+#define BTCH_TIM20_CH2N BTCH_TIM20_CH2
+#define BTCH_TIM20_CH3N BTCH_TIM20_CH3
+
+#define BTCH_TIM15_CH1N BTCH_TIM15_CH1
+#define BTCH_TIM16_CH1N BTCH_TIM16_CH1
+
+// Default output flags
+#define DEF_TIM_OUTPUT(ch)                      DEF_TIM_OUTPUT__ ## ch
+#define DEF_TIM_OUTPUT__CH1                     (TIMER_OUTPUT_NONE)
+#define DEF_TIM_OUTPUT__CH2                     (TIMER_OUTPUT_NONE)
+#define DEF_TIM_OUTPUT__CH3                     (TIMER_OUTPUT_NONE)
+#define DEF_TIM_OUTPUT__CH4                     (TIMER_OUTPUT_NONE)
+#define DEF_TIM_OUTPUT__CH1N                    (TIMER_OUTPUT_N_CHANNEL)
+#define DEF_TIM_OUTPUT__CH2N                    (TIMER_OUTPUT_N_CHANNEL)
+#define DEF_TIM_OUTPUT__CH3N                    (TIMER_OUTPUT_N_CHANNEL)
+#define DEF_TIM_OUTPUT__CH4N                    (TIMER_OUTPUT_N_CHANNEL)
 
 #if defined(STM32F3)
     #include "timer_def_stm32f3xx.h"
 #elif defined(STM32F4)
     #include "timer_def_stm32f4xx.h"
 #elif defined(STM32F7)
-
-
-//#include "timer_def_stm32f7xx.h"
-
-
+    #include "timer_def_stm32f7xx.h"
 #else
-#error "Unknown CPU defined"
+    #error "Unknown CPU defined"
 #endif
 

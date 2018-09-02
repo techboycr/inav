@@ -44,8 +44,8 @@
 
 static IO_t ws2811IO = IO_NONE;
 bool ws2811Initialised = false;
-
 static TIM_HandleTypeDef TimHandle;
+static DMA_t dma = NULL;
 static uint16_t timerChannel = 0;
 static bool timerNChannel = false;
 
@@ -62,13 +62,20 @@ void WS2811_DMA_IRQHandler(dmaChannelDescriptor_t* descriptor)
 
 void ws2811LedStripHardwareInit(void)
 {
-    const timerHardware_t *timerHardware = timerGetByTag(IO_TAG(WS2811_PIN), TIM_USE_ANY);
-    TIM_TypeDef *timer = timerHardware->tim;
-    timerChannel = timerHardware->channel;
+    const timerHardware_t * timerHardware = timerGetByTag(IO_TAG(WS2811_PIN), TIM_USE_ANY);
 
     if (timerHardware == NULL) {
         return;
     }
+
+    dma = dmaGetByTag(timerHardware->dmaTag);
+
+    if (dma == NULL) {
+        return;
+    }
+
+    TIM_TypeDef *timer = timerHardware->tim;
+    timerChannel = timerHardware->channel;
     TimHandle.Instance = timer;
 
     /* Compute the prescaler value */
@@ -93,10 +100,8 @@ void ws2811LedStripHardwareInit(void)
     IOInit(ws2811IO, OWNER_LED_STRIP, RESOURCE_OUTPUT, 0);
     IOConfigGPIOAF(ws2811IO, IO_CONFIG(GPIO_MODE_AF_PP, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_PULLDOWN), timerHardware->alternateFunction);
 
-    __DMA1_CLK_ENABLE();
-
     /* Set the parameters to be configured */
-    hdma_tim.Init.Channel = WS2811_DMA_CHANNEL;
+    hdma_tim.Init.Channel = dmaGetChannelByTag(timerHardware->dmaTag);
     hdma_tim.Init.Direction = DMA_MEMORY_TO_PERIPH;
     hdma_tim.Init.PeriphInc = DMA_PINC_DISABLE;
     hdma_tim.Init.MemInc = DMA_MINC_ENABLE;
@@ -110,15 +115,15 @@ void ws2811LedStripHardwareInit(void)
     hdma_tim.Init.PeriphBurst = DMA_PBURST_SINGLE;
 
     /* Set hdma_tim instance */
-    hdma_tim.Instance = WS2811_DMA_STREAM;
+    hdma_tim.Instance = dma->ref;
 
     uint16_t dmaSource = timerDmaSource(timerChannel);
 
     /* Link hdma_tim to hdma[x] (channelx) */
     __HAL_LINKDMA(&TimHandle, hdma[dmaSource], hdma_tim);
 
-    dmaInit(WS2811_DMA_HANDLER_IDENTIFER, OWNER_LED_STRIP, 0);
-    dmaSetHandler(WS2811_DMA_HANDLER_IDENTIFER, WS2811_DMA_IRQHandler, NVIC_PRIO_WS2811_DMA, dmaSource);
+    dmaInit(dma, OWNER_LED_STRIP, 0);
+    dmaSetHandler(dma, WS2811_DMA_IRQHandler, NVIC_PRIO_WS2811_DMA, dmaSource);
 
     /* Initialize TIMx DMA handle */
     if (HAL_DMA_Init(TimHandle.hdma[dmaSource]) != HAL_OK) {

@@ -115,6 +115,17 @@ uint32_t dmaGetChannelByTag(dmaTag_t tag)
     return dmaChannel[DMATAG_GET_CHANNEL(tag)];
 }
 
+DMA_t dmaFindHandlerIdentifier(DMA_Stream_TypeDef * stream)
+{
+    for (unsigned i = 0; i < (sizeof(dmaDescriptors) / sizeof(dmaDescriptors[0])); i++) {
+        if (stream == dmaDescriptors[i].ref) {
+            return &dmaDescriptors[i];
+        }
+    }
+
+    return NULL;
+}
+
 DMA_t dmaSetupMemoryToPeripheralTransfer(dmaTag_t tag, void * peripheralBaseAddr, void * memoryBaseAddr, uint32_t bufferSize)
 {
     DMA_InitTypeDef DMA_InitStructure;
