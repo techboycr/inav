@@ -78,24 +78,19 @@ typedef struct dmaChannelDescriptor_s {
 #define DMA_IT_DMEIF                        ((uint32_t)0x00000004)
 #define DMA_IT_FEIF                         ((uint32_t)0x00000001)
 
-#else
+#else   // STM32F3
 
-typedef enum {
-    DMA1_CH1_HANDLER = 0,
-    DMA1_CH2_HANDLER,
-    DMA1_CH3_HANDLER,
-    DMA1_CH4_HANDLER,
-    DMA1_CH5_HANDLER,
-    DMA1_CH6_HANDLER,
-    DMA1_CH7_HANDLER,
-    DMA2_CH1_HANDLER,
-    DMA2_CH2_HANDLER,
-    DMA2_CH3_HANDLER,
-    DMA2_CH4_HANDLER,
-    DMA2_CH5_HANDLER,
-} dmaHandlerIdentifier_e;
+#define DEFINE_DMA_CHANNEL(d, c, f) { \
+                                        .tag = DMA_TAG(d, 0, c), \
+                                        .dma = DMA##d, \
+                                        .ref = DMA##d##_Channel##c, \
+                                        .irqHandlerCallback = NULL, \
+                                        .flagsShift = f, \
+                                        .irqNumber = DMA##d##_Channel##c##_IRQn, \
+                                        .rcc = RCC_AHBPeriph_DMA##d, \
+                                        .userParam = 0 \
+                                    }
 
-#define DEFINE_DMA_CHANNEL(d, c, f, i, r) {.dma = d, .ref = c, .irqHandlerCallback = NULL, .flagsShift = f, .irqN = i, .rcc = r, .userParam = 0}
 #define DEFINE_DMA_IRQ_HANDLER(d, c, i) void DMA ## d ## _Channel ## c ## _IRQHandler(void) {\
                                                                         if (dmaDescriptors[i].irqHandlerCallback)\
                                                                             dmaDescriptors[i].irqHandlerCallback(&dmaDescriptors[i]);\

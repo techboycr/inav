@@ -91,15 +91,6 @@ void ws2811LedStripHardwareInit(void)
     dmaSetHandler(dma, WS2811_DMA_IRQHandler, NVIC_PRIO_WS2811_DMA, 0);
     dmaSetupMemoryToPeripheralTransfer(timerHardware->dmaTag, (void *)timerCCR(timer, timerHardware->channel), (void *)ledStripDMABuffer, WS2811_DMA_BUFFER_SIZE);
 
-// #elif defined(STM32F3)
-    // DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)ledStripDMABuffer;
-    // DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;
-    // DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
-    // DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
-    // DMA_InitStructure.DMA_Priority = DMA_Priority_High;
-    // DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
-// #endif
-
     TIM_DMACmd(timer, timerDmaSource(timerHardware->channel), ENABLE);
     ws2811Initialised = true;
 }
@@ -109,10 +100,8 @@ void ws2811LedStripDMAEnable(void)
     if (!ws2811Initialised)
         return;
 
-    // Start DMA transfer
     dmaStartTransfer(dma, WS2811_DMA_BUFFER_SIZE);
 
-    // Enable TIM
     TIM_SetCounter(timer, 0);
     TIM_Cmd(timer, ENABLE);
 }
