@@ -17,8 +17,6 @@
 
 #pragma once
 
-#define CC_CHANNELS_PER_TIMER       4   // TIM_Channel_1..4
-
 #if defined(USE_HAL_DRIVER)
 #  define IMPL_TIM_IT_UPDATE_INTERRUPT      TIM_IT_UPDATE
 #  define TIM_IT_CCx(ch)                    (TIM_IT_CC1 << ((ch) / 4))
@@ -27,28 +25,21 @@
 #  define TIM_IT_CCx(ch)                    (TIM_IT_CC1 << ((ch) / 4))
 #endif
 
-typedef struct timerConfig_s {
-    timerCCHandlerRec_t *edgeCallback[CC_CHANNELS_PER_TIMER];
-    timerOvrHandlerRec_t *overflowCallback[CC_CHANNELS_PER_TIMER];
-    timerOvrHandlerRec_t *overflowCallbackActive; // null-terminated linkded list of active overflow callbacks
-} timerConfig_t;
-
-extern timerConfig_t * timerConfig[HARDWARE_TIMER_DEFINITION_COUNT];
-
 #define _TIM_IRQ_HANDLER2(name, i, j)                                   \
     void name(void)                                                     \
     {                                                                   \
-        impl_timerCaptureCompareHandler(TIM ## i, timerConfig[i - 1]); \
-        impl_timerCaptureCompareHandler(TIM ## j, timerConfig[j - 1]); \
+        impl_timerCaptureCompareHandler(TIM ## i, timerCtx[i - 1]); \
+        impl_timerCaptureCompareHandler(TIM ## j, timerCtx[j - 1]); \
     } struct dummy
 
 #define _TIM_IRQ_HANDLER(name, i)                                       \
     void name(void)                                                     \
     {                                                                   \
-        impl_timerCaptureCompareHandler(TIM ## i, timerConfig[i - 1]); \
+        impl_timerCaptureCompareHandler(TIM ## i, timerCtx[i - 1]); \
     } struct dummy
 
 uint8_t lookupTimerIndex(const TIM_TypeDef *tim);
+uint8_t impl_timerLookupChannel(uint8_t channelIndex);
 void impl_timerNVICConfigure(uint8_t irq, int irqPriority);
 void impl_timerConfigBase(TIM_TypeDef *tim, uint16_t period, uint8_t mhz);
 void impl_enableTimer(TIM_TypeDef * tim);
@@ -56,9 +47,9 @@ void impl_timerEnableIT(TIM_TypeDef * tim, uint32_t interrupt);
 void impl_timerDisableIT(TIM_TypeDef * tim, uint32_t interrupt);
 void impl_timerClearFlag(TIM_TypeDef * tim, uint32_t flag);
 void impl_timerChConfigIC(const timerHardware_t *timHw, bool polarityRising, unsigned inputFilterTicks);
-void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timerConfig_t *timerConfig);
-void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channel, bool isNChannel, bool inverted, uint16_t value);
-void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channel, bool isNChannel);
-uint16_t impl_timerDmaSource(uint8_t channel);
-volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channel);
+void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t * timerCtx);
+void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channelIndex, bool isNChannel, bool inverted, uint16_t value);
+void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channelIndex, bool isNChannel);
+uint16_t impl_timerDmaSource(uint8_t channelIndex);
+volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex);
 

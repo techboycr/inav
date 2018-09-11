@@ -115,3 +115,64 @@ uint32_t dmaGetChannelByTag(dmaTag_t tag)
     return dmaChannel[DMATAG_GET_CHANNEL(tag)];
 }
 
+/*
+
+DMA_t dmaSetupMemoryToPeripheralTransfer(dmaTag_t tag, void * peripheralBaseAddr, void * memoryBaseAddr, uint32_t bufferSize)
+{
+    DMA_InitTypeDef DMA_InitStructure;
+    DMA_t dma = dmaGetByTag(tag);
+
+    if (dma == NULL) {
+        return NULL;
+    }
+
+    dma->hdma.Instance = dma->ref;
+    dma->hdma.Init.Channel = dmaGetChannelByTag(timerHardware->dmaTag);
+    dma->hdma.Init.Direction = DMA_MEMORY_TO_PERIPH;
+    dma->hdma.Init.PeriphInc = DMA_PINC_DISABLE;
+    dma->hdma.Init.MemInc = DMA_MINC_ENABLE;
+    dma->hdma.Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+    dma->hdma.Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
+    dma->hdma.Init.Mode = DMA_NORMAL;
+    dma->hdma.Init.Priority = DMA_PRIORITY_HIGH;
+    dma->hdma.Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+    dma->hdma.Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
+    dma->hdma.Init.MemBurst = DMA_MBURST_SINGLE;
+    dma->hdma.Init.PeriphBurst = DMA_PBURST_SINGLE;
+
+    
+
+    DMA_DeInit(dma->ref);
+    DMA_Cmd(dma->ref, DISABLE);
+
+    DMA_DeInit(dma->ref);
+    DMA_StructInit(&DMA_InitStructure);
+    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)peripheralBaseAddr;
+    DMA_InitStructure.DMA_BufferSize = bufferSize;
+    DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+    DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
+    DMA_InitStructure.DMA_Channel = ;
+    DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)memoryBaseAddr;
+    DMA_InitStructure.DMA_DIR = DMA_DIR_MemoryToPeripheral;
+    DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
+    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Word;
+    DMA_InitStructure.DMA_Priority = DMA_Priority_High;
+    DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
+
+    DMA_Init(dma->ref, &DMA_InitStructure);
+    DMA_ITConfig(dma->ref, DMA_IT_TC, ENABLE);
+
+    return dma;
+}
+
+void dmaStartTransfer(DMA_t dma, uint32_t bufferSize)
+{
+    DMA_SetCurrDataCounter(dma->ref, bufferSize);  // load number of bytes to be transferred
+    DMA_Cmd(dma->ref, ENABLE);
+}
+
+void dmaStopTransfer(DMA_t dma)
+{
+    DMA_Cmd(dma->ref, DISABLE);
+}
+*/

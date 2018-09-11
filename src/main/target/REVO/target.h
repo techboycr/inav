@@ -132,8 +132,8 @@
 
 #define SENSORS_SET (SENSOR_ACC|SENSOR_MAG|SENSOR_BARO)
 
-#define USE_LED_STRIP
-#define WS2811_PIN                      PA1
+// #define USE_LED_STRIP
+// #define WS2811_PIN                      PA1
 
 #define ENABLE_BLACKBOX_LOGGING_ON_SPIFLASH_BY_DEFAULT
 

@@ -50,46 +50,113 @@ void impl_timerNVICConfigure(uint8_t irq, int irqPriority)
     HAL_NVIC_EnableIRQ(irq);
 }
 
-void impl_timerConfigBase(TIM_TypeDef *tim, uint16_t period, uint8_t mhz)
+void impl_timerConfigBase(TIM_TypeDef *timer, uint16_t period, uint8_t mhz)
 {
-    uint8_t timerIndex = lookupTimerIndex(tim);
+    uint8_t timerIndex = lookupTimerIndex(timer);
 
     if (timerIndex >= HARDWARE_TIMER_DEFINITION_COUNT) {
         return;
     }
 
-    if (timerHandle[timerIndex].Instance == tim)
+    if (timerHandle[timerIndex].Instance == timer)
     {
         // already configured
         return;
     }
 
-    timerHandle[timerIndex].Instance = tim;
-    timerHandle[timerIndex].Init.Period = (period - 1) & 0xffff; // AKA TIMx_ARR
-    timerHandle[timerIndex].Init.Prescaler = (timerClock(tim) / ((uint32_t)mhz * 1000000)) - 1;
-    timerHandle[timerIndex].Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    timerHandle[timerIndex].Init.CounterMode = TIM_COUNTERMODE_UP;
-    timerHandle[timerIndex].Init.RepetitionCounter = 0x0000;
+    LL_TIM_InitTypeDef init;
+    LL_TIM_StructInit(&init);
 
-    HAL_TIM_Base_Init(&timerHandle[timerIndex]);
-    if (tim == TIM1 || tim == TIM2 || tim == TIM3 || tim == TIM4 || tim == TIM5 || tim == TIM8 || tim == TIM9)
-    {
-        TIM_ClockConfigTypeDef sClockSourceConfig;
-        memset(&sClockSourceConfig, 0, sizeof(sClockSourceConfig));
-        sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-        if (HAL_TIM_ConfigClockSource(&timerHandle[timerIndex], &sClockSourceConfig) != HAL_OK) {
-            return;
-        }
+    init.Prescaler = (timerClock(timer) / ((uint32_t)mhz * 1000000)) - 1;
+    init.Autoreload = (period - 1) & 0xffff;
+    
+    LL_TIM_Init(timer, &init);
+
+    LL_TIM_DisableARRPreload(timer);
+    LL_TIM_SetClockSource(timer, LL_TIM_CLOCKSOURCE_INTERNAL);
+
+    if (IS_TIM_BKIN2_INSTANCE(timer)) {
+        LL_TIM_DisableBRK2(timer);
     }
-    if (tim == TIM1 || tim == TIM2 || tim == TIM3 || tim == TIM4 || tim == TIM5 || tim == TIM8 )
-    {
-        TIM_MasterConfigTypeDef sMasterConfig;
-        memset(&sMasterConfig, 0, sizeof(sMasterConfig));
-        sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-        if (HAL_TIMEx_MasterConfigSynchronization(&timerHandle[timerIndex], &sMasterConfig) != HAL_OK) {
-            return;
-        }
+
+    if (IS_TIM_MASTER_INSTANCE(timer)) {
+        LL_TIM_DisableMasterSlaveMode(timer);
     }
+
+    if (IS_TIM_BREAK_INSTANCE(timer)) {
+        LL_TIM_DisableBRK(timer);
+        LL_TIM_EnableAllOutputs(timer);
+    }
+
+    LL_TIM_EnableCounter(timer);
+
+    timerHandle[timerIndex].Instance = timer;
+}
+
+uint8_t impl_timerLookupChannelLL(uint8_t channelIndex)
+{
+    const uint8_t lookupTable[] = { LL_TIM_CHANNEL_CH1, LL_TIM_CHANNEL_2, LL_TIM_CHANNEL_3, LL_TIM_CHANNEL_4 };
+
+    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
+        return lookupTable[channelIndex];
+    }
+
+    return 0;
+}
+
+void impl_timerPWMConfigChannel(TIM_TypeDef * timer, uint8_t channelIndex, bool isNChannel, bool inverted, uint16_t value)
+{
+    UNUSED(isNChannel);
+
+    __IO timCCR_t * ccr = impl_timerCCR(timer, channelIndex);
+    uint16_t ll_channel = impl_timerLookupChannelLL(channelIndex);
+
+    LL_TIM_OC_InitTypeDef init;
+    LL_TIM_OC_StructInit(&init);
+
+    init.OCMode = LL_TIM_OCMODE_PWM1;
+    init.OCState = LL_TIM_OCSTATE_ENABLE;
+
+    if (inverted) {
+        init.OCPolarity = LL_TIM_OCPOLARITY_HIGH;
+    }
+
+    LL_TIM_OC_Init(timer, ll_channel, &init);
+    LL_TIM_OC_DisableFast(timer, ll_channel);
+    LL_TIM_OC_EnablePreload(timer, ll_channel);
+
+    *ccr = value;
+}
+
+uint8_t impl_timerLookupChannel(uint8_t channelIndex)
+{
+    const uint8_t lookupTable[] = { TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3, TIM_CHANNEL_4 };
+
+    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
+        return lookupTable[channelIndex];
+    }
+
+    return 0;
+}
+
+
+volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex)
+{
+    switch (channelIndex) {
+        case 0:
+            return &tim->CCR1;
+            break;
+        case 1:
+            return &tim->CCR2;
+            break;
+        case 2:
+            return &tim->CCR3;
+            break;
+        case 3:
+            return &tim->CCR4;
+            break;
+    }
+    return NULL;
 }
 
 void impl_enableTimer(TIM_TypeDef * tim)
@@ -179,7 +246,7 @@ void impl_timerChConfigIC(const timerHardware_t *timHw, bool polarityRising, uns
     HAL_TIM_IC_ConfigChannel(Handle,&TIM_ICInitStructure, timHw->channel);
 }
 
-void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timerConfig_t * timerConfig)
+void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *timerCtx)
 {
     unsigned tim_status = tim->SR & tim->DIER;
 
@@ -191,28 +258,35 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timerConfig_t * timerConf
         tim->SR = mask;
         tim_status &= mask;
 
-        if (timerConfig) {
+        if (timerCtx) {
             switch (bit) {
-                case __builtin_clz(TIM_IT_UPDATE): {
+                case __builtin_clz(TIM_IT_Update): {
                     const uint16_t capture = tim->ARR;
-                    timerOvrHandlerRec_t *cb = timerConfig->overflowCallbackActive;
-                    while (cb) {
-                        cb->fn(cb, capture);
-                        cb = cb->next;
+                    if (timerCtx->ch[0].callbackOvr) {
+                        timerCtx->ch[0].callbackOvr(&timerCtx->ch[0], capture);
+                    }
+                    if (timerCtx->ch[1].callbackOvr) {
+                        timerCtx->ch[1].callbackOvr(&timerCtx->ch[1], capture);
+                    }
+                    if (timerCtx->ch[2].callbackOvr) {
+                        timerCtx->ch[2].callbackOvr(&timerCtx->ch[2], capture);
+                    }
+                    if (timerCtx->ch[3].callbackOvr) {
+                        timerCtx->ch[3].callbackOvr(&timerCtx->ch[3], capture);
                     }
                     break;
                 }
                 case __builtin_clz(TIM_IT_CC1):
-                    timerConfig->edgeCallback[0]->fn(timerConfig->edgeCallback[0], tim->CCR1);
+                    timerCtx->ch[0].callbackEdge(&timerCtx->ch[0], tim->CCR1);
                     break;
                 case __builtin_clz(TIM_IT_CC2):
-                    timerConfig->edgeCallback[1]->fn(timerConfig->edgeCallback[1], tim->CCR2);
+                    timerCtx->ch[1].callbackEdge(&timerCtx->ch[1], tim->CCR2);
                     break;
                 case __builtin_clz(TIM_IT_CC3):
-                    timerConfig->edgeCallback[2]->fn(timerConfig->edgeCallback[2], tim->CCR3);
+                    timerCtx->ch[2].callbackEdge(&timerCtx->ch[2], tim->CCR3);
                     break;
                 case __builtin_clz(TIM_IT_CC4):
-                    timerConfig->edgeCallback[3]->fn(timerConfig->edgeCallback[3], tim->CCR4);
+                    timerCtx->ch[3].callbackEdge(&timerCtx->ch[3], tim->CCR4);
                     break;
             }
         }
@@ -243,58 +317,13 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timerConfig_t * timerConf
     }
 }
 
-void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channel, bool isNChannel, bool inverted, uint16_t value)
+uint16_t impl_timerDmaSource(uint8_t channelIndex)
 {
-    UNUSED(isNChannel);
+    const uint16_t lookupTable[] = { TIM_DMA_ID_CC1, TIM_DMA_ID_CC2, TIM_DMA_ID_CC3, TIM_DMA_ID_CC4 };
 
-    TIM_HandleTypeDef * Handle = timerFindTimerHandle(tim);
-    if (Handle == NULL) {
-        return;
+    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
+        return lookupTable[channelIndex];
     }
 
-    TIM_OC_InitTypeDef TIM_OCInitStructure;
-
-    TIM_OCInitStructure.OCMode = TIM_OCMODE_PWM1;
-    TIM_OCInitStructure.OCIdleState = TIM_OCIDLESTATE_SET;
-    TIM_OCInitStructure.OCPolarity = inverted ? TIM_OCPOLARITY_LOW : TIM_OCPOLARITY_HIGH;
-    TIM_OCInitStructure.OCNIdleState = TIM_OCNIDLESTATE_SET;
-    TIM_OCInitStructure.OCNPolarity = inverted ? TIM_OCNPOLARITY_LOW : TIM_OCNPOLARITY_HIGH;
-    TIM_OCInitStructure.Pulse = value;
-    TIM_OCInitStructure.OCFastMode = TIM_OCFAST_DISABLE;
-
-    HAL_TIM_PWM_ConfigChannel(Handle, &TIM_OCInitStructure, channel);
-}
-
-uint16_t impl_timerDmaSource(uint8_t channel)
-{
-    switch (channel) {
-    case TIM_CHANNEL_1:
-        return TIM_DMA_ID_CC1;
-    case TIM_CHANNEL_2:
-        return TIM_DMA_ID_CC2;
-    case TIM_CHANNEL_3:
-        return TIM_DMA_ID_CC3;
-    case TIM_CHANNEL_4:
-        return TIM_DMA_ID_CC4;
-    }
     return 0;
-}
-
-volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channel)
-{
-    switch (channel) {
-        case TIM_CHANNEL_1:
-            return &tim->CCR1;
-            break;
-        case TIM_CHANNEL_2:
-            return &tim->CCR2;
-            break;
-        case TIM_CHANNEL_3:
-            return &tim->CCR3;
-            break;
-        case TIM_CHANNEL_4:
-            return &tim->CCR4;
-            break;
-    }
-    return NULL;
 }

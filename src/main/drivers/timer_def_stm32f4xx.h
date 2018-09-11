@@ -17,16 +17,6 @@
 
 #pragma once
 
-// Mappings for STDLIB defines
-#define DEF_TIM_CHNL_CH1    TIM_Channel_1
-#define DEF_TIM_CHNL_CH1N   TIM_Channel_1
-#define DEF_TIM_CHNL_CH2    TIM_Channel_2
-#define DEF_TIM_CHNL_CH2N   TIM_Channel_2
-#define DEF_TIM_CHNL_CH3    TIM_Channel_3
-#define DEF_TIM_CHNL_CH3N   TIM_Channel_3
-#define DEF_TIM_CHNL_CH4    TIM_Channel_4
-#define DEF_TIM_CHNL_CH4N   TIM_Channel_4
-
 #define DEF_TIM_DMAMAP__D(dma, stream, channel)         DMA_TAG(dma, stream, channel)
 #define DEF_TIM_DMAMAP__NONE                            DMA_NONE
 

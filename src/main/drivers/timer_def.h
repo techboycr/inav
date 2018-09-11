@@ -25,6 +25,16 @@
 #define DEF_TIM_DMAMAP_VARIANT__1(_0, _1, ...)     _1
 #define DEF_TIM_DMAMAP_VARIANT__2(_0, _1, _2, ...) _2
 
+// Timer channel indexes
+#define DEF_TIM_CHNL_CH1    0
+#define DEF_TIM_CHNL_CH1N   0
+#define DEF_TIM_CHNL_CH2    1
+#define DEF_TIM_CHNL_CH2N   1
+#define DEF_TIM_CHNL_CH3    2
+#define DEF_TIM_CHNL_CH3N   2
+#define DEF_TIM_CHNL_CH4    3
+#define DEF_TIM_CHNL_CH4N   3
+
 // map to base channel (strip N from channel); works only when channel N exists
 #define DEF_TIM_TCH2BTCH(timch) CONCAT(BTCH_, timch)
 #define BTCH_TIM1_CH1N BTCH_TIM1_CH1

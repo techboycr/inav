@@ -59,9 +59,9 @@ void impl_enableTimer(TIM_TypeDef * tim)
     TIM_Cmd(tim, ENABLE);
 }
 
-void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channel, bool isNChannel)
+void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channelIndex, bool isNChannel)
 {
-    UNUSED(channel);
+    UNUSED(channelIndex);
     UNUSED(isNChannel);
     TIM_CtrlPWMOutputs(tim, ENABLE);
 }
@@ -104,7 +104,7 @@ void impl_timerChConfigIC(const timerHardware_t *timHw, bool polarityRising, uns
     TIM_ICInitTypeDef TIM_ICInitStructure;
 
     TIM_ICStructInit(&TIM_ICInitStructure);
-    TIM_ICInitStructure.TIM_Channel = timHw->channel;
+    TIM_ICInitStructure.TIM_Channel = impl_timerLookupChannel(timHw->channelIndex);
     TIM_ICInitStructure.TIM_ICPolarity = polarityRising ? TIM_ICPolarity_Rising : TIM_ICPolarity_Falling;
     TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
     TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;
@@ -113,7 +113,7 @@ void impl_timerChConfigIC(const timerHardware_t *timHw, bool polarityRising, uns
     TIM_ICInit(timHw->tim, &TIM_ICInitStructure);
 }
 
-void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timerConfig_t *timerConfig)
+void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *timerCtx)
 {
     unsigned tim_status = tim->SR & tim->DIER;
 
@@ -125,28 +125,35 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timerConfig_t *timerConfi
         tim->SR = mask;
         tim_status &= mask;
 
-        if (timerConfig) {
+        if (timerCtx) {
             switch (bit) {
                 case __builtin_clz(TIM_IT_Update): {
                     const uint16_t capture = tim->ARR;
-                    timerOvrHandlerRec_t *cb = timerConfig->overflowCallbackActive;
-                    while (cb) {
-                        cb->fn(cb, capture);
-                        cb = cb->next;
+                    if (timerCtx->ch[0].callbackOvr) {
+                        timerCtx->ch[0].callbackOvr(&timerCtx->ch[0], capture);
+                    }
+                    if (timerCtx->ch[1].callbackOvr) {
+                        timerCtx->ch[1].callbackOvr(&timerCtx->ch[1], capture);
+                    }
+                    if (timerCtx->ch[2].callbackOvr) {
+                        timerCtx->ch[2].callbackOvr(&timerCtx->ch[2], capture);
+                    }
+                    if (timerCtx->ch[3].callbackOvr) {
+                        timerCtx->ch[3].callbackOvr(&timerCtx->ch[3], capture);
                     }
                     break;
                 }
                 case __builtin_clz(TIM_IT_CC1):
-                    timerConfig->edgeCallback[0]->fn(timerConfig->edgeCallback[0], tim->CCR1);
+                    timerCtx->ch[0].callbackEdge(&timerCtx->ch[0], tim->CCR1);
                     break;
                 case __builtin_clz(TIM_IT_CC2):
-                    timerConfig->edgeCallback[1]->fn(timerConfig->edgeCallback[1], tim->CCR2);
+                    timerCtx->ch[1].callbackEdge(&timerCtx->ch[1], tim->CCR2);
                     break;
                 case __builtin_clz(TIM_IT_CC3):
-                    timerConfig->edgeCallback[2]->fn(timerConfig->edgeCallback[2], tim->CCR3);
+                    timerCtx->ch[2].callbackEdge(&timerCtx->ch[2], tim->CCR3);
                     break;
                 case __builtin_clz(TIM_IT_CC4):
-                    timerConfig->edgeCallback[3]->fn(timerConfig->edgeCallback[3], tim->CCR4);
+                    timerCtx->ch[3].callbackEdge(&timerCtx->ch[3], tim->CCR4);
                     break;
             }
         }
@@ -177,7 +184,7 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timerConfig_t *timerConfi
     }
 }
 
-void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channel, bool isNChannel, bool inverted, uint16_t value)
+void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channelIndex, bool isNChannel, bool inverted, uint16_t value)
 {
     TIM_OCInitTypeDef  TIM_OCInitStructure;
 
@@ -197,54 +204,61 @@ void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channel, bool isNChan
         TIM_OCInitStructure.TIM_OCIdleState = TIM_OCIdleState_Set;
     }
 
-    switch (channel) {
-        case TIM_Channel_1:
+    switch (channelIndex) {
+        case 0:
             TIM_OC1Init(tim, &TIM_OCInitStructure);
             TIM_OC1PreloadConfig(tim, TIM_OCPreload_Enable);
             break;
-        case TIM_Channel_2:
+        case 1:
             TIM_OC2Init(tim, &TIM_OCInitStructure);
             TIM_OC2PreloadConfig(tim, TIM_OCPreload_Enable);
             break;
-        case TIM_Channel_3:
+        case 2:
             TIM_OC3Init(tim, &TIM_OCInitStructure);
             TIM_OC3PreloadConfig(tim, TIM_OCPreload_Enable);
             break;
-        case TIM_Channel_4:
+        case 3:
             TIM_OC4Init(tim, &TIM_OCInitStructure);
             TIM_OC4PreloadConfig(tim, TIM_OCPreload_Enable);
             break;
     }
 }
 
-uint16_t impl_timerDmaSource(uint8_t channel)
+uint8_t impl_timerLookupChannel(uint8_t channelIndex)
 {
-    switch (channel) {
-    case TIM_Channel_1:
-        return TIM_DMA_CC1;
-    case TIM_Channel_2:
-        return TIM_DMA_CC2;
-    case TIM_Channel_3:
-        return TIM_DMA_CC3;
-    case TIM_Channel_4:
-        return TIM_DMA_CC4;
+    const uint8_t lookupTable[] = { TIM_Channel_1, TIM_Channel_2, TIM_Channel_3, TIM_Channel_4 };
+
+    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
+        return lookupTable[channelIndex];
     }
+
     return 0;
 }
 
-volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channel)
+uint16_t impl_timerDmaSource(uint8_t channelIndex)
 {
-    switch (channel) {
-        case TIM_Channel_1:
+    const uint16_t lookupTable[] = { TIM_DMA_CC1, TIM_DMA_CC2, TIM_DMA_CC3, TIM_DMA_CC4 };
+
+    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
+        return lookupTable[channelIndex];
+    }
+
+    return 0;
+}
+
+volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex)
+{
+    switch (channelIndex) {
+        case 0:
             return &tim->CCR1;
             break;
-        case TIM_Channel_2:
+        case 1:
             return &tim->CCR2;
             break;
-        case TIM_Channel_3:
+        case 2:
             return &tim->CCR3;
             break;
-        case TIM_Channel_4:
+        case 3:
             return &tim->CCR4;
             break;
     }

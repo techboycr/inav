@@ -36,8 +36,11 @@ typedef void (*dmaCallbackHandlerFuncPtr)(DMA_t channelDescriptor);
 typedef struct dmaChannelDescriptor_s {
     dmaTag_t                    tag;
     DMA_TypeDef*                dma;
-#if defined(STM32F4) || defined(STM32F7)
+#if defined(STM32F4)
     DMA_Stream_TypeDef*         ref;
+#elif defined(STM32F7)
+    DMA_Stream_TypeDef*         ref;
+    DMA_HandleTypeDef           hdma;
 #else
     DMA_Channel_TypeDef*        ref;
 #endif

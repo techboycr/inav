@@ -20,6 +20,7 @@
 #if defined(STM32F7)
 #include "stm32f7xx.h"
 #include "stm32f7xx_hal.h"
+#include "stm32f7xx_ll_tim.h"
 
 // Chip Unique ID on F7
 #if defined(STM32F722xx)
