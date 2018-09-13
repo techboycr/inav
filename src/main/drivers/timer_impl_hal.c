@@ -52,6 +52,45 @@ void impl_timerNVICConfigure(uint8_t irq, int irqPriority)
 
 void impl_timerConfigBase(TIM_TypeDef *timer, uint16_t period, uint8_t mhz)
 {
+    uint8_t timerIndex = lookupTimerIndex(tim);
+
+    if (timerIndex >= HARDWARE_TIMER_DEFINITION_COUNT) {
+        return;
+    }
+
+    if (timerHandle[timerIndex].Instance == tim)
+    {
+        // already configured
+        return;
+    }
+
+    timerHandle[timerIndex].Instance = tim;
+    timerHandle[timerIndex].Init.Period = (period - 1) & 0xffff; // AKA TIMx_ARR
+    timerHandle[timerIndex].Init.Prescaler = (timerClock(tim) / ((uint32_t)mhz * 1000000)) - 1;
+    timerHandle[timerIndex].Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    timerHandle[timerIndex].Init.CounterMode = TIM_COUNTERMODE_UP;
+    timerHandle[timerIndex].Init.RepetitionCounter = 0x0000;
+
+    HAL_TIM_Base_Init(&timerHandle[timerIndex]);
+    if (tim == TIM1 || tim == TIM2 || tim == TIM3 || tim == TIM4 || tim == TIM5 || tim == TIM8 || tim == TIM9)
+    {
+        TIM_ClockConfigTypeDef sClockSourceConfig;
+        memset(&sClockSourceConfig, 0, sizeof(sClockSourceConfig));
+        sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
+        if (HAL_TIM_ConfigClockSource(&timerHandle[timerIndex], &sClockSourceConfig) != HAL_OK) {
+            return;
+        }
+    }
+    if (tim == TIM1 || tim == TIM2 || tim == TIM3 || tim == TIM4 || tim == TIM5 || tim == TIM8 )
+    {
+        TIM_MasterConfigTypeDef sMasterConfig;
+        memset(&sMasterConfig, 0, sizeof(sMasterConfig));
+        sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+        if (HAL_TIMEx_MasterConfigSynchronization(&timerHandle[timerIndex], &sMasterConfig) != HAL_OK) {
+            return;
+        }
+    }
+    /*
     uint8_t timerIndex = lookupTimerIndex(timer);
 
     if (timerIndex >= HARDWARE_TIMER_DEFINITION_COUNT) {
@@ -91,6 +130,7 @@ void impl_timerConfigBase(TIM_TypeDef *timer, uint16_t period, uint8_t mhz)
     LL_TIM_EnableCounter(timer);
 
     timerHandle[timerIndex].Instance = timer;
+    */
 }
 
 uint8_t impl_timerLookupChannelLL(uint8_t channelIndex)

@@ -228,6 +228,7 @@
 
 #define SENSORS_SET (SENSOR_ACC|SENSOR_MAG|SENSOR_BARO)
 
+/*
 #define USE_LED_STRIP
 #if (defined(OMNIBUSF4PRO) || defined(OMNIBUSF4V3)) && !defined(OMNIBUSF4PRO_LEDSTRIPM5)
 #   define WS2811_PIN                      PB6
@@ -240,6 +241,7 @@
 #   define WS2811_DMA_STREAM               DMA1_Stream4
 #   define WS2811_DMA_CHANNEL              DMA_Channel_6
 #endif
+*/
 
 #define DEFAULT_RX_TYPE         RX_TYPE_PPM
 #define DISABLE_RX_PWM_FEATURE
