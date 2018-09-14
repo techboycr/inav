@@ -98,7 +98,7 @@ void ws2811LedStripHardwareInit(void)
 
     ws2811IO = IOGetByTag(IO_TAG(WS2811_PIN));
     IOInit(ws2811IO, OWNER_LED_STRIP, RESOURCE_OUTPUT, 0);
-    IOConfigGPIOAF(ws2811IO, IO_CONFIG(GPIO_MODE_AF_PP, GPIO_SPEED_FREQ_VERY_HIGH, GPIO_PULLDOWN), timerHardware->alternateFunction);
+    IOConfigGPIOAF(ws2811IO, IOCFG_AF_PP_FAST, timerHardware->alternateFunction);
 
     /* Set the parameters to be configured */
     hdma_tim.Init.Channel = dmaGetChannelByTag(timerHardware->dmaTag);

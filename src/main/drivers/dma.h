@@ -145,7 +145,3 @@ uint32_t dmaGetChannelByTag(dmaTag_t tag);
 void dmaInit(DMA_t dma, resourceOwner_e owner, uint8_t resourceIndex);
 void dmaEnableClock(DMA_t dma);
 void dmaSetHandler(DMA_t dma, dmaCallbackHandlerFuncPtr callback, uint32_t priority, uint32_t userParam);
-
-DMA_t dmaSetupMemoryToPeripheralTransfer(dmaTag_t tag, void * peripheralBaseAddr, void * memoryBaseAddr, uint32_t bufferSize);
-void dmaStartTransfer(DMA_t dma, uint32_t bufferSize);
-void dmaStopTransfer(DMA_t dma);

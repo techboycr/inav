@@ -157,14 +157,3 @@ DMA_t dmaSetupMemoryToPeripheralTransfer(dmaTag_t tag, void * peripheralBaseAddr
 
     return dma;
 }
-
-void dmaStartTransfer(DMA_t dma, uint32_t bufferSize)
-{
-    DMA_SetCurrDataCounter(dma->ref, bufferSize);  // load number of bytes to be transferred
-    DMA_Cmd(dma->ref, ENABLE);
-}
-
-void dmaStopTransfer(DMA_t dma)
-{
-    DMA_Cmd(dma->ref, DISABLE);
-}

@@ -92,6 +92,7 @@ void hard_fault_handler_c(unsigned long *hardfault_args)
 
 void HardFault_Handler(void)
 {
+    while(1);
     LED2_ON;
 
     // fall out of the sky

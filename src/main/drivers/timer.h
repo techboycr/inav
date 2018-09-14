@@ -94,22 +94,28 @@ enum {
 };
 
 typedef enum {
-    TCH_STATE_NOT_CONFIGURED = 0,
-} tchState_e;
+    TCH_DMA_IDLE = 0,
+    TCH_DMA_READY,
+    TCH_DMA_ACTIVE,
+} tchDmaState_e;
 
 // Run-time context - timer channel - state, DMA buffer pointer, DMA completion callback
 struct TCH_s;
 typedef void timerCallbackFn(struct TCH_s * tch, uint32_t value);
 
+typedef struct timerCallbacks_s {
+    void *            callbackParam;
+    timerCallbackFn * callbackEdge;
+    timerCallbackFn * callbackOvr;
+} timerCallbacks_t;
+
 struct timHardwareContext_s;
 typedef struct TCH_s {
-    struct timHardwareContext_s * timCtx;         // Run-time initialized to parent timer
-    const timerHardware_t *       timHw;          // Link to timerHardware_t definition (target-specific)
-    void *                        dmaBufPtr;      // Pointer to DMA buffer
-    void *                        callbackParam;
-    timerCallbackFn *             callbackDMA;
-    timerCallbackFn *             callbackEdge;
-    timerCallbackFn *             callbackOvr;
+    struct timHardwareContext_s *   timCtx;         // Run-time initialized to parent timer
+    const timerHardware_t *         timHw;          // Link to timerHardware_t definition (target-specific)
+    const timerCallbacks_t *        cb;
+    DMA_t                           dma;            // Timer channel DMA handle
+    tchDmaState_e                   dmaState;
 } TCH_t;
 
 typedef struct timHardwareContext_s {
@@ -150,13 +156,19 @@ typedef enum {
     TYPE_TIMER
 } channelType_t;
 
+uint8_t timerClockDivisor(TIM_TypeDef *tim);
+
 const timerHardware_t * timerGetByTag(ioTag_t tag, timerUsageFlag_e flag);
 TCH_t * timerGetTCH(const timerHardware_t * timHw);
 
+uint32_t timerGetBaseClock(TCH_t * tch);
 void timerConfigure(TCH_t * tch, uint16_t period, uint8_t mhz);  // This interface should be replaced.
 
+void timerChInitCallbacks(timerCallbacks_t * cb, void * callbackParam, timerCallbackFn * edgeCallback, timerCallbackFn * overflowCallback);
 void timerChConfigIC(TCH_t * tch, bool polarityRising, unsigned inputFilterSamples);
-void timerChConfigCallbacks(TCH_t * tch, void * callbackParam, timerCallbackFn * edgeCallback, timerCallbackFn * overflowCallback, timerCallbackFn * dmaCallback);
+void timerChConfigCallbacks(TCH_t * tch, timerCallbacks_t * cb);
+void timerChCaptureEnable(TCH_t * tch);
+void timerChCaptureDisable(TCH_t * tch);
 
 void timerInit(void);
 void timerStart(void);
@@ -175,8 +187,12 @@ void timerEnable(TCH_t * tch);
 void timerPWMConfigChannel(TCH_t * tch, uint16_t value);
 void timerPWMStart(TCH_t * tch);
 
-volatile timCCR_t *timerCCR(TCH_t * tch);
-uint16_t timerDmaSource(TCH_t * tch);
+bool timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBufferSize);
+void timerPWMPrepareDMA(TCH_t * tch, uint32_t dmaBufferSize);
+void timerPWMStartDMA(TCH_t * tch);
+void timerPWMStopDMA(TCH_t * tch);
+bool timerPWMDMAInProgress(TCH_t * tch);
 
-uint8_t timerClockDivisor(TIM_TypeDef *tim);
+volatile timCCR_t *timerCCR(TCH_t * tch);
+
 uint16_t timerGetPrescalerByDesiredMhz(TIM_TypeDef *tim, uint16_t mhz);

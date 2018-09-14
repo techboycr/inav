@@ -105,6 +105,10 @@
 #define UART6_RX_PIN            PC7
 #define UART6_TX_PIN            PC6
 
+// #define USE_SOFTSERIAL1
+// #define SOFTSERIAL_1_RX_PIN     PC8
+// #define SOFTSERIAL_1_TX_PIN     PC9
+
 #define SERIAL_PORT_COUNT       4 //VCP, USART1, USART3, USART6
 
 #define USE_SPI
@@ -132,8 +136,8 @@
 
 #define SENSORS_SET (SENSOR_ACC|SENSOR_MAG|SENSOR_BARO)
 
-// #define USE_LED_STRIP
-// #define WS2811_PIN                      PA1
+#define USE_LED_STRIP
+#define WS2811_PIN                      PA1
 
 #define ENABLE_BLACKBOX_LOGGING_ON_SPIFLASH_BY_DEFAULT
 

@@ -45,7 +45,6 @@ uint32_t ledStripDMABuffer[WS2811_DMA_BUFFER_SIZE];
 #else
 uint8_t ledStripDMABuffer[WS2811_DMA_BUFFER_SIZE];
 #endif
-volatile uint8_t ws2811LedDataTransferInProgress = 0;
 
 uint16_t BIT_COMPARE_1 = 0;
 uint16_t BIT_COMPARE_0 = 0;
@@ -97,7 +96,7 @@ void ws2811LedStripInit(void)
 
 bool isWS2811LedStripReady(void)
 {
-    return !ws2811LedDataTransferInProgress;
+    return !ws2811LedStripDMAInProgress();
 }
 
 STATIC_UNIT_TESTED uint16_t dmaBufferOffset;
@@ -143,7 +142,7 @@ void ws2811UpdateStrip(void)
     static rgbColor24bpp_t *rgb24;
 
     // don't wait - risk of infinite block, just get an update next time round
-    if (ws2811LedDataTransferInProgress) {
+    if (ws2811LedStripDMAInProgress()) {
         return;
     }
 
@@ -167,7 +166,6 @@ void ws2811UpdateStrip(void)
         ledIndex++;
     }
 
-    ws2811LedDataTransferInProgress = 1;
     ws2811LedStripDMAEnable();
 }
 

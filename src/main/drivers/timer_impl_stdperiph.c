@@ -21,6 +21,7 @@
 #include "platform.h"
 
 #include "build/atomic.h"
+#include "build/debug.h"
 
 #include "common/utils.h"
 
@@ -28,6 +29,7 @@
 #include "drivers/rcc.h"
 #include "drivers/time.h"
 #include "drivers/nvic.h"
+#include "drivers/dma.h"
 #include "drivers/timer.h"
 #include "drivers/timer_impl.h"
 
@@ -48,7 +50,7 @@ void impl_timerConfigBase(TIM_TypeDef *tim, uint16_t period, uint8_t mhz)
 
     TIM_TimeBaseStructInit(&TIM_TimeBaseStructure);
     TIM_TimeBaseStructure.TIM_Period = (period - 1) & 0xffff; // AKA TIMx_ARR
-    TIM_TimeBaseStructure.TIM_Prescaler = timerGetPrescalerByDesiredMhz(tim, mhz);
+    TIM_TimeBaseStructure.TIM_Prescaler = (uint16_t)((SystemCoreClock / timerClockDivisor(tim) / ((uint32_t)mhz * 1000000)) - 1);
     TIM_TimeBaseStructure.TIM_ClockDivision = TIM_CKD_DIV1;
     TIM_TimeBaseStructure.TIM_CounterMode = TIM_CounterMode_Up;
     TIM_TimeBaseInit(tim, &TIM_TimeBaseStructure);
@@ -129,31 +131,31 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *tim
             switch (bit) {
                 case __builtin_clz(TIM_IT_Update): {
                     const uint16_t capture = tim->ARR;
-                    if (timerCtx->ch[0].callbackOvr) {
-                        timerCtx->ch[0].callbackOvr(&timerCtx->ch[0], capture);
+                    if (timerCtx->ch[0].cb && timerCtx->ch[0].cb->callbackOvr) {
+                        timerCtx->ch[0].cb->callbackOvr(&timerCtx->ch[0], capture);
                     }
-                    if (timerCtx->ch[1].callbackOvr) {
-                        timerCtx->ch[1].callbackOvr(&timerCtx->ch[1], capture);
+                    if (timerCtx->ch[1].cb && timerCtx->ch[1].cb->callbackOvr) {
+                        timerCtx->ch[1].cb->callbackOvr(&timerCtx->ch[1], capture);
                     }
-                    if (timerCtx->ch[2].callbackOvr) {
-                        timerCtx->ch[2].callbackOvr(&timerCtx->ch[2], capture);
+                    if (timerCtx->ch[2].cb && timerCtx->ch[2].cb->callbackOvr) {
+                        timerCtx->ch[2].cb->callbackOvr(&timerCtx->ch[2], capture);
                     }
-                    if (timerCtx->ch[3].callbackOvr) {
-                        timerCtx->ch[3].callbackOvr(&timerCtx->ch[3], capture);
+                    if (timerCtx->ch[3].cb && timerCtx->ch[3].cb->callbackOvr) {
+                        timerCtx->ch[3].cb->callbackOvr(&timerCtx->ch[3], capture);
                     }
                     break;
                 }
                 case __builtin_clz(TIM_IT_CC1):
-                    timerCtx->ch[0].callbackEdge(&timerCtx->ch[0], tim->CCR1);
+                    timerCtx->ch[0].cb->callbackEdge(&timerCtx->ch[0], tim->CCR1);
                     break;
                 case __builtin_clz(TIM_IT_CC2):
-                    timerCtx->ch[1].callbackEdge(&timerCtx->ch[1], tim->CCR2);
+                    timerCtx->ch[1].cb->callbackEdge(&timerCtx->ch[1], tim->CCR2);
                     break;
                 case __builtin_clz(TIM_IT_CC3):
-                    timerCtx->ch[2].callbackEdge(&timerCtx->ch[2], tim->CCR3);
+                    timerCtx->ch[2].cb->callbackEdge(&timerCtx->ch[2], tim->CCR3);
                     break;
                 case __builtin_clz(TIM_IT_CC4):
-                    timerCtx->ch[3].callbackEdge(&timerCtx->ch[3], tim->CCR4);
+                    timerCtx->ch[3].cb->callbackEdge(&timerCtx->ch[3], tim->CCR4);
                     break;
             }
         }
@@ -263,4 +265,133 @@ volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex)
             break;
     }
     return NULL;
+}
+
+void impl_timerChCaptureCompareEnable(TCH_t * tch, bool enable)
+{
+    const uint32_t chn = impl_timerLookupChannel(tch->timHw->channelIndex);
+    const uint32_t cmd = enable ? TIM_CCx_Enable : TIM_CCx_Disable;
+
+    TIM_CCxCmd(tch->timHw->tim, chn, cmd);
+}
+
+static void impl_timerDMA_IRQHandler(DMA_t descriptor)
+{
+    if (DMA_GET_FLAG_STATUS(descriptor, DMA_IT_TCIF)) {
+        TCH_t * tch = (TCH_t *)descriptor->userParam;
+        tch->dmaState = TCH_DMA_IDLE;
+
+        DMA_Cmd(tch->dma->ref, DISABLE);
+        TIM_DMACmd(tch->timHw->tim, impl_timerDmaSource(tch->timHw->channelIndex), DISABLE);
+
+        DMA_CLEAR_FLAG(descriptor, DMA_IT_TCIF);
+    }
+}
+
+bool impl_timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBufferSize)
+{
+    DMA_InitTypeDef DMA_InitStructure;
+    TIM_TypeDef * timer = tch->timHw->tim;
+    
+    tch->dma = dmaGetByTag(tch->timHw->dmaTag);
+    if (tch->dma == NULL) {
+        return false;
+    }
+
+    // We assume that timer channels are already initialized by calls to:
+    //  timerConfigBase
+    //  timerPWMConfigChannel
+
+    TIM_CtrlPWMOutputs(timer, ENABLE);
+    TIM_ARRPreloadConfig(timer, ENABLE);
+
+    TIM_CCxCmd(timer, impl_timerLookupChannel(tch->timHw->channelIndex), TIM_CCx_Enable);
+    TIM_Cmd(timer, ENABLE);
+
+    dmaInit(tch->dma, OWNER_LED_STRIP, 0);
+    dmaSetHandler(tch->dma, impl_timerDMA_IRQHandler, NVIC_PRIO_WS2811_DMA, (uint32_t)tch);
+
+    DMA_DeInit(tch->dma->ref);
+    DMA_Cmd(tch->dma->ref, DISABLE);
+
+    DMA_DeInit(tch->dma->ref);
+    DMA_StructInit(&DMA_InitStructure);
+
+    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)impl_timerCCR(timer, tch->timHw->channelIndex);
+    DMA_InitStructure.DMA_BufferSize = dmaBufferSize;
+    DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
+    DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
+    DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
+
+#ifdef STM32F4
+    DMA_InitStructure.DMA_Channel = dmaGetChannelByTag(tch->timHw->dmaTag);
+    DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)dmaBuffer;
+    DMA_InitStructure.DMA_DIR = DMA_DIR_MemoryToPeripheral;
+    DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
+    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Word;
+    DMA_InitStructure.DMA_Priority = DMA_Priority_High;
+#else // F3
+    DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)dmaBuffer;
+    DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;
+    DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
+    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
+    DMA_InitStructure.DMA_Priority = DMA_Priority_High;
+    DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
+#endif
+
+    DMA_Init(tch->dma->ref, &DMA_InitStructure);
+    DMA_ITConfig(tch->dma->ref, DMA_IT_TC, ENABLE);
+
+    return true;
+}
+
+void impl_timerPWMPrepareDMA(TCH_t * tch, uint32_t dmaBufferSize)
+{
+    tch->dmaState = TCH_DMA_READY;
+    DMA_SetCurrDataCounter(tch->dma->ref, dmaBufferSize);
+    DMA_Cmd(tch->dma->ref, ENABLE);
+}
+
+void impl_timerPWMStartDMA(TCH_t * tch)
+{
+    uint16_t dmaSources = 0;
+    timHardwareContext_t * timCtx = tch->timCtx;
+
+    if (timCtx->ch[0].dmaState == TCH_DMA_READY) {
+        timCtx->ch[0].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC1;
+    }
+
+    if (timCtx->ch[1].dmaState == TCH_DMA_READY) {
+        timCtx->ch[1].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC2;
+    }
+
+    if (timCtx->ch[2].dmaState == TCH_DMA_READY) {
+        timCtx->ch[2].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC3;
+    }
+
+    if (timCtx->ch[3].dmaState == TCH_DMA_READY) {
+        timCtx->ch[3].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC4;
+    }
+
+    debug[1] = dmaSources;
+
+    if (dmaSources) {
+        TIM_SetCounter(tch->timHw->tim, 0);
+        TIM_DMACmd(tch->timHw->tim, dmaSources, ENABLE);
+    }
+}
+
+void impl_timerPWMStopDMA(TCH_t * tch)
+{
+    if (!tch->dma) {
+        return;
+    }
+
+    DMA_Cmd(tch->dma->ref, DISABLE);
+    TIM_DMACmd(tch->timHw->tim, impl_timerDmaSource(tch->timHw->channelIndex), DISABLE);
+    TIM_Cmd(tch->timHw->tim, ENABLE);
 }

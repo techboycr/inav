@@ -38,7 +38,6 @@
 #include "drivers/nvic.h"
 #include "drivers/io.h"
 #include "drivers/timer.h"
-#include "drivers/timer_impl.h"
 
 #include "serial.h"
 #include "serial_softserial.h"
@@ -70,6 +69,9 @@ typedef struct softSerial_s {
 
     TCH_t *           tch;
     TCH_t *           exTch;
+
+    timerCallbacks_t  tchCallbacks;
+    timerCallbacks_t  exTchCallbacks;
 
     volatile uint8_t rxBuffer[SOFTSERIAL_BUFFER_SIZE];
     volatile uint8_t txBuffer[SOFTSERIAL_BUFFER_SIZE];
@@ -115,11 +117,7 @@ static void setTxSignal(softSerial_t *softSerial, uint8_t state)
 
 static void serialEnableCC(softSerial_t *softSerial)
 {
-#ifdef USE_HAL_DRIVER
-    TIM_CCxChannelCmd(softSerial->tch->timHw->tim, impl_timerLookupChannel(softSerial->tch->timHw->channelIndex), TIM_CCx_ENABLE);
-#else
-    TIM_CCxCmd(softSerial->tch->timHw->tim, impl_timerLookupChannel(softSerial->tch->timHw->channelIndex), TIM_CCx_Enable);
-#endif
+    timerChCaptureEnable(softSerial->tch);
 }
 
 static void serialInputPortActivate(softSerial_t *softSerial)
@@ -137,20 +135,13 @@ static void serialInputPortActivate(softSerial_t *softSerial)
     softSerial->rxBitIndex = 0;
 
     // Enable input capture
-
     serialEnableCC(softSerial);
 }
 
 static void serialInputPortDeActivate(softSerial_t *softSerial)
 {
     // Disable input capture
-
-#ifdef USE_HAL_DRIVER
-    TIM_CCxChannelCmd(softSerial->tch->timHw->tim, impl_timerLookupChannel(softSerial->tch->timHw->channelIndex), TIM_CCx_DISABLE);
-#else
-    TIM_CCxCmd(softSerial->tch->timHw->tim, impl_timerLookupChannel(softSerial->tch->timHw->channelIndex), TIM_CCx_Disable);
-#endif
-
+    timerChCaptureDisable(softSerial->tch);
     IOConfigGPIOAF(softSerial->rxIO, IOCFG_IN_FLOATING, softSerial->tch->timHw->alternateFunction);
     softSerial->rxActive = false;
 }
@@ -327,11 +318,16 @@ serialPort_t *openSoftSerial(softSerialPortIndex_e portIndex, serialReceiveCallb
     if ((mode & MODE_TX) && softSerial->exTch && softSerial->exTch->timHw->tim != softSerial->tch->timHw->tim) {
         softSerial->timerMode = TIMER_MODE_DUAL;
         serialTimerConfigureTimebase(softSerial->exTch, baud);
-        timerChConfigCallbacks(softSerial->tch, &softSerial, onSerialRxPinChange, NULL, NULL);
-        timerChConfigCallbacks(softSerial->exTch, &softSerial, NULL, onSerialTimerOverflow, NULL);
+
+        timerChInitCallbacks(&softSerial->tchCallbacks, softSerial, onSerialRxPinChange, NULL);
+        timerChInitCallbacks(&softSerial->exTchCallbacks, softSerial, NULL, onSerialTimerOverflow);
+
+        timerChConfigCallbacks(softSerial->tch, &softSerial->tchCallbacks);
+        timerChConfigCallbacks(softSerial->exTch, &softSerial->exTchCallbacks);
     } else {
         softSerial->timerMode = TIMER_MODE_SINGLE;
-        timerChConfigCallbacks(softSerial->tch, &softSerial, onSerialRxPinChange, onSerialTimerOverflow, NULL);
+        timerChInitCallbacks(&softSerial->tchCallbacks, softSerial, onSerialRxPinChange, onSerialTimerOverflow);
+        timerChConfigCallbacks(softSerial->tch, &softSerial->tchCallbacks);
     }
 
 #ifdef USE_HAL_DRIVER
@@ -482,7 +478,7 @@ void onSerialTimerOverflow(TCH_t * tch, uint32_t capture)
 {
     UNUSED(capture);
 
-    softSerial_t * self = (softSerial_t *)tch->callbackParam;
+    softSerial_t * self = (softSerial_t *)tch->cb->callbackParam;
 
     if (self->port.mode & MODE_TX)
         processTxState(self);
@@ -495,7 +491,7 @@ void onSerialRxPinChange(TCH_t * tch, uint32_t capture)
 {
     UNUSED(capture);
 
-    softSerial_t * self = (softSerial_t *)tch->callbackParam;
+    softSerial_t * self = (softSerial_t *)tch->cb->callbackParam;
     bool inverted = self->port.options & SERIAL_INVERTED;
 
     if ((self->port.mode & MODE_RX) == 0) {

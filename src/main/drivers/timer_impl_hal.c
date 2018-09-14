@@ -367,3 +367,11 @@ uint16_t impl_timerDmaSource(uint8_t channelIndex)
 
     return 0;
 }
+
+void impl_timerChCaptureCompareEnable(TCH_t * tch, bool enable)
+{
+    const uint32_t chn = impl_timerLookupChannel(tch->timHw->channelIndex);
+    const uint32_t cmd = enable ? TIM_CCx_ENABLE : TIM_CCx_DISABLE;
+
+    TIM_CCxChannelCmd(tch->timHw->tim, chn, cmd);
+}

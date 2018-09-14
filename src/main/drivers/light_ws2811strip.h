@@ -32,6 +32,7 @@
 void ws2811LedStripInit(void);
 void ws2811LedStripHardwareInit(void);
 void ws2811LedStripDMAEnable(void);
+bool ws2811LedStripDMAInProgress(void);
 
 void ws2811UpdateStrip(void);
 
@@ -51,7 +52,6 @@ extern uint32_t ledStripDMABuffer[WS2811_DMA_BUFFER_SIZE];
 #else
 extern uint8_t ledStripDMABuffer[WS2811_DMA_BUFFER_SIZE];
 #endif
-extern volatile uint8_t ws2811LedDataTransferInProgress;
 
 extern uint16_t BIT_COMPARE_1;
 extern uint16_t BIT_COMPARE_0;

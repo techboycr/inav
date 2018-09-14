@@ -52,4 +52,8 @@ void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channelIndex, bool is
 void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channelIndex, bool isNChannel);
 uint16_t impl_timerDmaSource(uint8_t channelIndex);
 volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex);
-
+void impl_timerChCaptureCompareEnable(TCH_t * tch, bool enable);
+bool impl_timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBufferSize);
+void impl_timerPWMPrepareDMA(TCH_t * tch, uint32_t dmaBufferSize);
+void impl_timerPWMStartDMA(TCH_t * tch);
+void impl_timerPWMStopDMA(TCH_t * tch);

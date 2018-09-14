@@ -119,40 +119,42 @@ TCH_t * timerGetTCH(const timerHardware_t * timHw)
 
     // Initialize timer channel object
     timerCtx[timerIndex]->ch[timHw->channelIndex].timHw = timHw;
-    timerCtx[timerIndex]->ch[timHw->channelIndex].dmaBufPtr = NULL;
-    timerCtx[timerIndex]->ch[timHw->channelIndex].callbackParam = NULL;
-    timerCtx[timerIndex]->ch[timHw->channelIndex].callbackDMA = NULL;
-    timerCtx[timerIndex]->ch[timHw->channelIndex].callbackEdge = NULL;
-    timerCtx[timerIndex]->ch[timHw->channelIndex].callbackOvr = NULL;
+    timerCtx[timerIndex]->ch[timHw->channelIndex].dma = NULL;
+    timerCtx[timerIndex]->ch[timHw->channelIndex].cb = NULL;
+    timerCtx[timerIndex]->ch[timHw->channelIndex].dmaState = TCH_DMA_IDLE;
 
     return &timerCtx[timerIndex]->ch[timHw->channelIndex];
 }
 
 // config edge and overflow callback for channel. Try to avoid overflowCallback, it is a bit expensive
-void timerChConfigCallbacks(TCH_t * tch, void * callbackParam, timerCallbackFn * edgeCallback, timerCallbackFn * overflowCallback, timerCallbackFn * dmaCallback)
+void timerChInitCallbacks(timerCallbacks_t * cb, void * callbackParam, timerCallbackFn * edgeCallback, timerCallbackFn * overflowCallback)
+{
+    cb->callbackParam = callbackParam;
+    cb->callbackEdge = edgeCallback;
+    cb->callbackOvr = overflowCallback;
+}
+
+void timerChConfigCallbacks(TCH_t * tch, timerCallbacks_t * cb)
 {
     if (tch == NULL) {
         return;
     }
 
-    if (edgeCallback == NULL) {
+    if (cb->callbackEdge == NULL) {
         impl_timerDisableIT(tch->timHw->tim, TIM_IT_CCx(impl_timerLookupChannel(tch->timHw->channelIndex)));
     }
     
-    if (overflowCallback == NULL) {
+    if (cb->callbackOvr == NULL) {
         impl_timerDisableIT(tch->timHw->tim, IMPL_TIM_IT_UPDATE_INTERRUPT);
     }
 
-    tch->callbackParam = callbackParam;
-    tch->callbackEdge = edgeCallback;
-    tch->callbackOvr = overflowCallback;
-    tch->callbackDMA = dmaCallback;
+    tch->cb = cb;
 
-    if (edgeCallback) {
+    if (cb->callbackEdge) {
         impl_timerEnableIT(tch->timHw->tim, TIM_IT_CCx(impl_timerLookupChannel(tch->timHw->channelIndex)));
     }
 
-    if (overflowCallback) {
+    if (cb->callbackOvr) {
         impl_timerEnableIT(tch->timHw->tim, IMPL_TIM_IT_UPDATE_INTERRUPT);
     }
 }
@@ -219,22 +221,47 @@ void timerPWMStart(TCH_t * tch)
     impl_timerPWMStart(tch->timHw->tim, tch->timHw->channelIndex, timerHardware->output & TIMER_OUTPUT_N_CHANNEL);
 }
 
-uint16_t timerDmaSource(TCH_t * tch)
-{
-    return impl_timerDmaSource(tch->timHw->channelIndex);
-}
-
 volatile timCCR_t *timerCCR(TCH_t * tch)
 {
     return impl_timerCCR(tch->timHw->tim, tch->timHw->channelIndex);
 }
 
-uint16_t timerGetPrescalerByDesiredMhz(TIM_TypeDef *tim, uint16_t mhz)
+void timerChCaptureEnable(TCH_t * tch)
 {
-    // protection here for desired MHZ > SystemCoreClock???
-    if ((uint32_t)(mhz * 1000000) > (SystemCoreClock / timerClockDivisor(tim))) {
-        return 0;
-    }
+    impl_timerChCaptureCompareEnable(tch, true);
+}
 
-    return (uint16_t)(round((SystemCoreClock / timerClockDivisor(tim) / (mhz * 1000000)) - 1));
+void timerChCaptureDisable(TCH_t * tch)
+{
+    impl_timerChCaptureCompareEnable(tch, false);
+}
+
+uint32_t timerGetBaseClock(TCH_t * tch)
+{
+    return SystemCoreClock / timerClockDivisor(tch->timHw->tim);
+}
+
+bool timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBufferSize)
+{
+    return impl_timerPWMConfigChannelDMA(tch, dmaBuffer, dmaBufferSize);
+}
+
+void timerPWMPrepareDMA(TCH_t * tch, uint32_t dmaBufferSize)
+{
+    impl_timerPWMPrepareDMA(tch, dmaBufferSize);
+}
+
+void timerPWMStartDMA(TCH_t * tch)
+{
+    impl_timerPWMStartDMA(tch);
+}
+
+void timerPWMStopDMA(TCH_t * tch)
+{
+    impl_timerPWMStopDMA(tch);
+}
+
+bool timerPWMDMAInProgress(TCH_t * tch)
+{
+    return tch->dmaState != TCH_DMA_IDLE;
 }
