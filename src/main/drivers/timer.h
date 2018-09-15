@@ -116,10 +116,14 @@ typedef struct TCH_s {
     const timerCallbacks_t *        cb;
     DMA_t                           dma;            // Timer channel DMA handle
     tchDmaState_e                   dmaState;
+    void *                          dmaBuffer;
 } TCH_t;
 
 typedef struct timHardwareContext_s {
     const timerDef_t *  timDef;
+#ifdef USE_HAL_DRIVER
+    TIM_HandleTypeDef * timHandle;
+#endif
     TCH_t               ch[CC_CHANNELS_PER_TIMER];
 } timHardwareContext_t;
 
@@ -173,15 +177,8 @@ void timerChCaptureDisable(TCH_t * tch);
 void timerInit(void);
 void timerStart(void);
 
-uint32_t timerClock(TCH_t * tch);
-
 void timerConfigBase(TCH_t * tch, uint16_t period, uint8_t mhz);  // TODO - just for migration
-
 uint16_t timerGetPeriod(TCH_t * tch);
-
-#if defined(USE_HAL_DRIVER)
-TIM_HandleTypeDef * timerFindTimerHandle(TIM_TypeDef *tim);
-#endif
 
 void timerEnable(TCH_t * tch);
 void timerPWMConfigChannel(TCH_t * tch, uint16_t value);

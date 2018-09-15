@@ -330,10 +330,6 @@ serialPort_t *openSoftSerial(softSerialPortIndex_e portIndex, serialReceiveCallb
         timerChConfigCallbacks(softSerial->tch, &softSerial->tchCallbacks);
     }
 
-#ifdef USE_HAL_DRIVER
-    softSerial->timerHandle = timerFindTimerHandle(softSerial->timerHardware->tim);
-#endif
-
     if (!(options & SERIAL_BIDIR)) {
         serialOutputPortActivate(softSerial);
         setTxSignal(softSerial, ENABLE);
@@ -503,7 +499,7 @@ void onSerialRxPinChange(TCH_t * tch, uint32_t capture)
         // of the bit period.
 
 #ifdef USE_HAL_DRIVER
-        __HAL_TIM_SetCounter(self->timerHandle, __HAL_TIM_GetAutoreload(self->timerHandle) / 2);
+        __HAL_TIM_SET_COUNTER(self->tch->timCtx->timHandle, __HAL_TIM_GET_AUTORELOAD(self->tch->timCtx->timHandle) / 2);
 #else
         TIM_SetCounter(self->tch->timHw->tim, timerGetPeriod(self->tch) / 2);
 #endif

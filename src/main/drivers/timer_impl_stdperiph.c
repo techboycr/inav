@@ -33,19 +33,36 @@
 #include "drivers/timer.h"
 #include "drivers/timer_impl.h"
 
-void impl_timerNVICConfigure(uint8_t irq, int irqPriority)
+const uint16_t lookupDMASourceTable[4] = { TIM_DMA_CC1, TIM_DMA_CC2, TIM_DMA_CC3, TIM_DMA_CC4 };
+const uint8_t lookupTIMChannelTable[4] = { TIM_Channel_1, TIM_Channel_2, TIM_Channel_3, TIM_Channel_4 };
+
+void impl_timerInitContext(timHardwareContext_t * timCtx)
+{
+    (void)timCtx;   // NoOp
+}
+
+void impl_timerNVICConfigure(TCH_t * tch, int irqPriority)
 {
     NVIC_InitTypeDef NVIC_InitStructure;
 
-    NVIC_InitStructure.NVIC_IRQChannel = irq;
     NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = NVIC_PRIORITY_BASE(irqPriority);
     NVIC_InitStructure.NVIC_IRQChannelSubPriority = NVIC_PRIORITY_SUB(irqPriority);
     NVIC_InitStructure.NVIC_IRQChannelCmd = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
+
+    if (tch->timCtx->timDef->irq) {
+        NVIC_InitStructure.NVIC_IRQChannel = tch->timCtx->timDef->irq;
+        NVIC_Init(&NVIC_InitStructure);
+    }
+
+    if (tch->timCtx->timDef->secondIrq) {
+        NVIC_InitStructure.NVIC_IRQChannel = tch->timCtx->timDef->secondIrq;
+        NVIC_Init(&NVIC_InitStructure);
+    }
 }
 
-void impl_timerConfigBase(TIM_TypeDef *tim, uint16_t period, uint8_t mhz)
+void impl_timerConfigBase(TCH_t * tch, uint16_t period, uint8_t mhz)
 {
+    TIM_TypeDef * tim = tch->timCtx->timDef->tim;
     TIM_TimeBaseInitTypeDef  TIM_TimeBaseStructure;
 
     TIM_TimeBaseStructInit(&TIM_TimeBaseStructure);
@@ -56,31 +73,29 @@ void impl_timerConfigBase(TIM_TypeDef *tim, uint16_t period, uint8_t mhz)
     TIM_TimeBaseInit(tim, &TIM_TimeBaseStructure);
 }
 
-void impl_enableTimer(TIM_TypeDef * tim)
+void impl_enableTimer(TCH_t * tch)
 {
-    TIM_Cmd(tim, ENABLE);
+    TIM_Cmd(tch->timHw->tim, ENABLE);
 }
 
-void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channelIndex, bool isNChannel)
+void impl_timerPWMStart(TCH_t * tch)
 {
-    UNUSED(channelIndex);
-    UNUSED(isNChannel);
-    TIM_CtrlPWMOutputs(tim, ENABLE);
+    TIM_CtrlPWMOutputs(tch->timHw->tim, ENABLE);
 }
 
-void impl_timerEnableIT(TIM_TypeDef * tim, uint32_t interrupt)
+void impl_timerEnableIT(TCH_t * tch, uint32_t interrupt)
 {
-    TIM_ITConfig(tim, interrupt, ENABLE);
+    TIM_ITConfig(tch->timHw->tim, interrupt, ENABLE);
 }
 
-void impl_timerDisableIT(TIM_TypeDef * tim, uint32_t interrupt)
+void impl_timerDisableIT(TCH_t * tch, uint32_t interrupt)
 {
-    TIM_ITConfig(tim, interrupt, DISABLE);
+    TIM_ITConfig(tch->timHw->tim, interrupt, DISABLE);
 }
 
-void impl_timerClearFlag(TIM_TypeDef * tim, uint32_t flag)
+void impl_timerClearFlag(TCH_t * tch, uint32_t flag)
 {
-    TIM_ClearFlag(tim, flag);
+    TIM_ClearFlag(tch->timHw->tim, flag);
 }
 
 // calculate input filter constant
@@ -95,24 +110,28 @@ static unsigned getFilter(unsigned ticks)
         16*5, 16*6, 16*8,
         32*5, 32*6, 32*8
     };
-    for (unsigned i = 1; i < ARRAYLEN(ftab); i++)
-        if (ftab[i] > ticks)
+
+    for (unsigned i = 1; i < ARRAYLEN(ftab); i++) {
+        if (ftab[i] > ticks) {
             return i - 1;
+        }
+    }
+
     return 0x0f;
 }
 
-void impl_timerChConfigIC(const timerHardware_t *timHw, bool polarityRising, unsigned inputFilterTicks)
+void impl_timerChConfigIC(TCH_t * tch, bool polarityRising, unsigned inputFilterTicks)
 {
     TIM_ICInitTypeDef TIM_ICInitStructure;
 
     TIM_ICStructInit(&TIM_ICInitStructure);
-    TIM_ICInitStructure.TIM_Channel = impl_timerLookupChannel(timHw->channelIndex);
+    TIM_ICInitStructure.TIM_Channel = lookupTIMChannelTable[tch->timHw->channelIndex];
     TIM_ICInitStructure.TIM_ICPolarity = polarityRising ? TIM_ICPolarity_Rising : TIM_ICPolarity_Falling;
     TIM_ICInitStructure.TIM_ICSelection = TIM_ICSelection_DirectTI;
     TIM_ICInitStructure.TIM_ICPrescaler = TIM_ICPSC_DIV1;
     TIM_ICInitStructure.TIM_ICFilter = getFilter(inputFilterTicks);
 
-    TIM_ICInit(timHw->tim, &TIM_ICInitStructure);
+    TIM_ICInit(tch->timHw->tim, &TIM_ICInitStructure);
 }
 
 void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *timerCtx)
@@ -186,15 +205,17 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *tim
     }
 }
 
-void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channelIndex, bool isNChannel, bool inverted, uint16_t value)
+void impl_timerPWMConfigChannel(TCH_t * tch, uint16_t value)
 {
+    const bool inverted = tch->timHw->output & TIMER_OUTPUT_INVERTED;
+
     TIM_OCInitTypeDef  TIM_OCInitStructure;
 
     TIM_OCStructInit(&TIM_OCInitStructure);
     TIM_OCInitStructure.TIM_OCMode = TIM_OCMode_PWM1;
     TIM_OCInitStructure.TIM_Pulse = value;
 
-    if (isNChannel) {
+    if (tch->timHw->output & TIMER_OUTPUT_N_CHANNEL) {
         TIM_OCInitStructure.TIM_OutputState = TIM_OutputState_Disable;
         TIM_OCInitStructure.TIM_OutputNState = TIM_OutputNState_Enable;
         TIM_OCInitStructure.TIM_OCNPolarity = inverted ? TIM_OCPolarity_Low : TIM_OCPolarity_High;
@@ -206,62 +227,40 @@ void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channelIndex, bool is
         TIM_OCInitStructure.TIM_OCIdleState = TIM_OCIdleState_Set;
     }
 
-    switch (channelIndex) {
+    switch (tch->timHw->channelIndex) {
         case 0:
-            TIM_OC1Init(tim, &TIM_OCInitStructure);
-            TIM_OC1PreloadConfig(tim, TIM_OCPreload_Enable);
+            TIM_OC1Init(tch->timHw->tim, &TIM_OCInitStructure);
+            TIM_OC1PreloadConfig(tch->timHw->tim, TIM_OCPreload_Enable);
             break;
         case 1:
-            TIM_OC2Init(tim, &TIM_OCInitStructure);
-            TIM_OC2PreloadConfig(tim, TIM_OCPreload_Enable);
+            TIM_OC2Init(tch->timHw->tim, &TIM_OCInitStructure);
+            TIM_OC2PreloadConfig(tch->timHw->tim, TIM_OCPreload_Enable);
             break;
         case 2:
-            TIM_OC3Init(tim, &TIM_OCInitStructure);
-            TIM_OC3PreloadConfig(tim, TIM_OCPreload_Enable);
+            TIM_OC3Init(tch->timHw->tim, &TIM_OCInitStructure);
+            TIM_OC3PreloadConfig(tch->timHw->tim, TIM_OCPreload_Enable);
             break;
         case 3:
-            TIM_OC4Init(tim, &TIM_OCInitStructure);
-            TIM_OC4PreloadConfig(tim, TIM_OCPreload_Enable);
+            TIM_OC4Init(tch->timHw->tim, &TIM_OCInitStructure);
+            TIM_OC4PreloadConfig(tch->timHw->tim, TIM_OCPreload_Enable);
             break;
     }
 }
 
-uint8_t impl_timerLookupChannel(uint8_t channelIndex)
+volatile timCCR_t * impl_timerCCR(TCH_t * tch)
 {
-    const uint8_t lookupTable[] = { TIM_Channel_1, TIM_Channel_2, TIM_Channel_3, TIM_Channel_4 };
-
-    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
-        return lookupTable[channelIndex];
-    }
-
-    return 0;
-}
-
-uint16_t impl_timerDmaSource(uint8_t channelIndex)
-{
-    const uint16_t lookupTable[] = { TIM_DMA_CC1, TIM_DMA_CC2, TIM_DMA_CC3, TIM_DMA_CC4 };
-
-    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
-        return lookupTable[channelIndex];
-    }
-
-    return 0;
-}
-
-volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex)
-{
-    switch (channelIndex) {
+    switch (tch->timHw->channelIndex) {
         case 0:
-            return &tim->CCR1;
+            return &tch->timHw->tim->CCR1;
             break;
         case 1:
-            return &tim->CCR2;
+            return &tch->timHw->tim->CCR2;
             break;
         case 2:
-            return &tim->CCR3;
+            return &tch->timHw->tim->CCR3;
             break;
         case 3:
-            return &tim->CCR4;
+            return &tch->timHw->tim->CCR4;
             break;
     }
     return NULL;
@@ -269,10 +268,7 @@ volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex)
 
 void impl_timerChCaptureCompareEnable(TCH_t * tch, bool enable)
 {
-    const uint32_t chn = impl_timerLookupChannel(tch->timHw->channelIndex);
-    const uint32_t cmd = enable ? TIM_CCx_Enable : TIM_CCx_Disable;
-
-    TIM_CCxCmd(tch->timHw->tim, chn, cmd);
+    TIM_CCxCmd(tch->timHw->tim, lookupTIMChannelTable[tch->timHw->channelIndex], (enable ? TIM_CCx_Enable : TIM_CCx_Disable));
 }
 
 static void impl_timerDMA_IRQHandler(DMA_t descriptor)
@@ -282,7 +278,7 @@ static void impl_timerDMA_IRQHandler(DMA_t descriptor)
         tch->dmaState = TCH_DMA_IDLE;
 
         DMA_Cmd(tch->dma->ref, DISABLE);
-        TIM_DMACmd(tch->timHw->tim, impl_timerDmaSource(tch->timHw->channelIndex), DISABLE);
+        TIM_DMACmd(tch->timHw->tim, lookupDMASourceTable[tch->timHw->channelIndex], DISABLE);
 
         DMA_CLEAR_FLAG(descriptor, DMA_IT_TCIF);
     }
@@ -305,10 +301,10 @@ bool impl_timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBu
     TIM_CtrlPWMOutputs(timer, ENABLE);
     TIM_ARRPreloadConfig(timer, ENABLE);
 
-    TIM_CCxCmd(timer, impl_timerLookupChannel(tch->timHw->channelIndex), TIM_CCx_Enable);
+    TIM_CCxCmd(timer, lookupTIMChannelTable[tch->timHw->channelIndex], TIM_CCx_Enable);
     TIM_Cmd(timer, ENABLE);
 
-    dmaInit(tch->dma, OWNER_LED_STRIP, 0);
+    dmaInit(tch->dma, OWNER_TIMER, 0);
     dmaSetHandler(tch->dma, impl_timerDMA_IRQHandler, NVIC_PRIO_WS2811_DMA, (uint32_t)tch);
 
     DMA_DeInit(tch->dma->ref);
@@ -317,10 +313,11 @@ bool impl_timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBu
     DMA_DeInit(tch->dma->ref);
     DMA_StructInit(&DMA_InitStructure);
 
-    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)impl_timerCCR(timer, tch->timHw->channelIndex);
+    DMA_InitStructure.DMA_PeripheralBaseAddr = (uint32_t)impl_timerCCR(tch);
     DMA_InitStructure.DMA_BufferSize = dmaBufferSize;
     DMA_InitStructure.DMA_PeripheralInc = DMA_PeripheralInc_Disable;
     DMA_InitStructure.DMA_MemoryInc = DMA_MemoryInc_Enable;
+    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Word;
     DMA_InitStructure.DMA_Mode = DMA_Mode_Normal;
 
 #ifdef STM32F4
@@ -328,13 +325,11 @@ bool impl_timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBu
     DMA_InitStructure.DMA_Memory0BaseAddr = (uint32_t)dmaBuffer;
     DMA_InitStructure.DMA_DIR = DMA_DIR_MemoryToPeripheral;
     DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
-    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Word;
     DMA_InitStructure.DMA_Priority = DMA_Priority_High;
 #else // F3
     DMA_InitStructure.DMA_MemoryBaseAddr = (uint32_t)dmaBuffer;
     DMA_InitStructure.DMA_DIR = DMA_DIR_PeripheralDST;
     DMA_InitStructure.DMA_PeripheralDataSize = DMA_PeripheralDataSize_Word;
-    DMA_InitStructure.DMA_MemoryDataSize = DMA_MemoryDataSize_Byte;
     DMA_InitStructure.DMA_Priority = DMA_Priority_High;
     DMA_InitStructure.DMA_M2M = DMA_M2M_Disable;
 #endif
@@ -377,8 +372,6 @@ void impl_timerPWMStartDMA(TCH_t * tch)
         dmaSources |= TIM_DMA_CC4;
     }
 
-    debug[1] = dmaSources;
-
     if (dmaSources) {
         TIM_SetCounter(tch->timHw->tim, 0);
         TIM_DMACmd(tch->timHw->tim, dmaSources, ENABLE);
@@ -387,11 +380,7 @@ void impl_timerPWMStartDMA(TCH_t * tch)
 
 void impl_timerPWMStopDMA(TCH_t * tch)
 {
-    if (!tch->dma) {
-        return;
-    }
-
     DMA_Cmd(tch->dma->ref, DISABLE);
-    TIM_DMACmd(tch->timHw->tim, impl_timerDmaSource(tch->timHw->channelIndex), DISABLE);
+    TIM_DMACmd(tch->timHw->tim, lookupDMASourceTable[tch->timHw->channelIndex], DISABLE);
     TIM_Cmd(tch->timHw->tim, ENABLE);
 }

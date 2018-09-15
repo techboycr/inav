@@ -54,18 +54,13 @@ uint8_t lookupTimerIndex(const TIM_TypeDef *tim)
     return ~1;
 }
 
-void timerNVICConfigure(uint8_t irq, int irqPriority)
-{
-    impl_timerNVICConfigure(irq, irqPriority);
-}
-
 void timerConfigBase(TCH_t * tch, uint16_t period, uint8_t mhz)
 {
     if (tch == NULL) {
         return;
     }
 
-    impl_timerConfigBase(tch->timCtx->timDef->tim, period, mhz);
+    impl_timerConfigBase(tch, period, mhz);
 }
 
 // old interface for PWM inputs. It should be replaced
@@ -75,18 +70,9 @@ void timerConfigure(TCH_t * tch, uint16_t period, uint8_t mhz)
         return;
     }
 
-    const timerDef_t * timDef = tch->timCtx->timDef;
-
-    impl_timerConfigBase(timDef->tim, period, mhz);
-    impl_enableTimer(timDef->tim);
-
-    if (timDef->irq != 0) {
-        impl_timerNVICConfigure(timDef->irq, NVIC_PRIO_TIMER);
-    }
-
-    if (timDef->secondIrq != 0) {
-        impl_timerNVICConfigure(timDef->secondIrq, NVIC_PRIO_TIMER);
-    }
+    impl_timerConfigBase(tch, period, mhz);
+    impl_timerNVICConfigure(tch, NVIC_PRIO_TIMER);
+    impl_enableTimer(tch);
 }
 
 TCH_t * timerGetTCH(const timerHardware_t * timHw)
@@ -115,6 +101,9 @@ TCH_t * timerGetTCH(const timerHardware_t * timHw)
         timerCtx[timerIndex]->ch[1].timCtx = timerCtx[timerIndex];
         timerCtx[timerIndex]->ch[2].timCtx = timerCtx[timerIndex];
         timerCtx[timerIndex]->ch[3].timCtx = timerCtx[timerIndex];
+
+        // Implementation-specific init
+        impl_timerInitContext(timerCtx[timerIndex]);
     }
 
     // Initialize timer channel object
@@ -141,28 +130,28 @@ void timerChConfigCallbacks(TCH_t * tch, timerCallbacks_t * cb)
     }
 
     if (cb->callbackEdge == NULL) {
-        impl_timerDisableIT(tch->timHw->tim, TIM_IT_CCx(impl_timerLookupChannel(tch->timHw->channelIndex)));
+        impl_timerDisableIT(tch, TIM_IT_CCx(tch->timHw->channelIndex));
     }
     
     if (cb->callbackOvr == NULL) {
-        impl_timerDisableIT(tch->timHw->tim, IMPL_TIM_IT_UPDATE_INTERRUPT);
+        impl_timerDisableIT(tch, IMPL_TIM_IT_UPDATE_INTERRUPT);
     }
 
     tch->cb = cb;
 
     if (cb->callbackEdge) {
-        impl_timerEnableIT(tch->timHw->tim, TIM_IT_CCx(impl_timerLookupChannel(tch->timHw->channelIndex)));
+        impl_timerEnableIT(tch, TIM_IT_CCx(tch->timHw->channelIndex));
     }
 
     if (cb->callbackOvr) {
-        impl_timerEnableIT(tch->timHw->tim, IMPL_TIM_IT_UPDATE_INTERRUPT);
+        impl_timerEnableIT(tch, IMPL_TIM_IT_UPDATE_INTERRUPT);
     }
 }
 
 // Configure input captupre
 void timerChConfigIC(TCH_t * tch, bool polarityRising, unsigned inputFilterSamples)
 {
-    impl_timerChConfigIC(tch->timHw, polarityRising, inputFilterSamples);
+    impl_timerChConfigIC(tch, polarityRising, inputFilterSamples);
 }
 
 uint16_t timerGetPeriod(TCH_t * tch)
@@ -206,24 +195,22 @@ const timerHardware_t * timerGetByTag(ioTag_t tag, timerUsageFlag_e flag)
 
 void timerPWMConfigChannel(TCH_t * tch, uint16_t value)
 {
-    const bool isNChannel = timerHardware->output & TIMER_OUTPUT_N_CHANNEL;
-    const bool inverted = timerHardware->output & TIMER_OUTPUT_INVERTED;
-    impl_timerPWMConfigChannel(tch->timHw->tim, tch->timHw->channelIndex, isNChannel, inverted, value);
+    impl_timerPWMConfigChannel(tch, value);
 }
 
 void timerEnable(TCH_t * tch)
 {
-    impl_enableTimer(tch->timHw->tim);
+    impl_enableTimer(tch);
 }
 
 void timerPWMStart(TCH_t * tch)
 {
-    impl_timerPWMStart(tch->timHw->tim, tch->timHw->channelIndex, timerHardware->output & TIMER_OUTPUT_N_CHANNEL);
+    impl_timerPWMStart(tch);
 }
 
 volatile timCCR_t *timerCCR(TCH_t * tch)
 {
-    return impl_timerCCR(tch->timHw->tim, tch->timHw->channelIndex);
+    return impl_timerCCR(tch);
 }
 
 void timerChCaptureEnable(TCH_t * tch)

@@ -32,9 +32,13 @@
 #include "drivers/timer.h"
 #include "drivers/timer_impl.h"
 
+extern uint32_t timerClock(TIM_TypeDef *tim);
+const uint16_t lookupDMAIndexTable[] = { TIM_DMA_ID_CC1, TIM_DMA_ID_CC2, TIM_DMA_ID_CC3, TIM_DMA_ID_CC4 };
+const uint16_t lookupDMASourceTable[] = { TIM_DMA_CC1, TIM_DMA_CC2, TIM_DMA_CC3, TIM_DMA_CC4 };
+const uint8_t lookupTIMChannelTable[] = { TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3, TIM_CHANNEL_4 };
 static TIM_HandleTypeDef timerHandle[HARDWARE_TIMER_DEFINITION_COUNT];
 
-TIM_HandleTypeDef * timerFindTimerHandle(TIM_TypeDef *tim)
+static TIM_HandleTypeDef * timerFindTimerHandle(TIM_TypeDef *tim)
 {
     uint8_t timerIndex = lookupTimerIndex(tim);
     if (timerIndex >= HARDWARE_TIMER_DEFINITION_COUNT) {
@@ -44,212 +48,126 @@ TIM_HandleTypeDef * timerFindTimerHandle(TIM_TypeDef *tim)
     return &timerHandle[timerIndex];
 }
 
-void impl_timerNVICConfigure(uint8_t irq, int irqPriority)
+void impl_timerInitContext(timHardwareContext_t * timCtx)
 {
-    HAL_NVIC_SetPriority(irq, NVIC_PRIORITY_BASE(irqPriority), NVIC_PRIORITY_SUB(irqPriority));
-    HAL_NVIC_EnableIRQ(irq);
+    timCtx->timHandle = timerFindTimerHandle(timCtx->timDef->tim);
 }
 
-void impl_timerConfigBase(TIM_TypeDef *timer, uint16_t period, uint8_t mhz)
+void impl_timerNVICConfigure(TCH_t * tch, int irqPriority)
 {
-    uint8_t timerIndex = lookupTimerIndex(tim);
+    if (tch->timCtx->timDef->irq) {
+        HAL_NVIC_SetPriority(tch->timCtx->timDef->irq, NVIC_PRIORITY_BASE(irqPriority), NVIC_PRIORITY_SUB(irqPriority));
+        HAL_NVIC_EnableIRQ(tch->timCtx->timDef->irq);
+    }
 
-    if (timerIndex >= HARDWARE_TIMER_DEFINITION_COUNT) {
+    if (tch->timCtx->timDef->secondIrq) {
+        HAL_NVIC_SetPriority(tch->timCtx->timDef->secondIrq, NVIC_PRIORITY_BASE(irqPriority), NVIC_PRIORITY_SUB(irqPriority));
+        HAL_NVIC_EnableIRQ(tch->timCtx->timDef->secondIrq);
+    }
+}
+
+void impl_timerConfigBase(TCH_t * tch, uint16_t period, uint8_t mhz)
+{
+    // Get and verify HAL TIM_Handle object 
+    TIM_HandleTypeDef * timHandle = tch->timCtx->timHandle;
+    TIM_TypeDef * timer = tch->timCtx->timDef->tim;
+
+    if (timHandle->Instance == timer) {
         return;
     }
 
-    if (timerHandle[timerIndex].Instance == tim)
-    {
-        // already configured
-        return;
-    }
+    timHandle->Instance = timer;
+    timHandle->Init.Prescaler = (timerClock(timer) / ((uint32_t)mhz * 1000000)) - 1;
+    timHandle->Init.Period = (period - 1) & 0xffff; // AKA TIMx_ARR
+    timHandle->Init.RepetitionCounter = 0;
+    timHandle->Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    timHandle->Init.CounterMode = TIM_COUNTERMODE_UP;
+    timHandle->Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
-    timerHandle[timerIndex].Instance = tim;
-    timerHandle[timerIndex].Init.Period = (period - 1) & 0xffff; // AKA TIMx_ARR
-    timerHandle[timerIndex].Init.Prescaler = (timerClock(tim) / ((uint32_t)mhz * 1000000)) - 1;
-    timerHandle[timerIndex].Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    timerHandle[timerIndex].Init.CounterMode = TIM_COUNTERMODE_UP;
-    timerHandle[timerIndex].Init.RepetitionCounter = 0x0000;
-
-    HAL_TIM_Base_Init(&timerHandle[timerIndex]);
-    if (tim == TIM1 || tim == TIM2 || tim == TIM3 || tim == TIM4 || tim == TIM5 || tim == TIM8 || tim == TIM9)
-    {
+    HAL_TIM_Base_Init(timHandle);
+    if (timer == TIM1 || timer == TIM2 || timer == TIM3 || timer == TIM4 || timer == TIM5 || timer == TIM8 || timer == TIM9) {
         TIM_ClockConfigTypeDef sClockSourceConfig;
         memset(&sClockSourceConfig, 0, sizeof(sClockSourceConfig));
         sClockSourceConfig.ClockSource = TIM_CLOCKSOURCE_INTERNAL;
-        if (HAL_TIM_ConfigClockSource(&timerHandle[timerIndex], &sClockSourceConfig) != HAL_OK) {
+        if (HAL_TIM_ConfigClockSource(timHandle, &sClockSourceConfig) != HAL_OK) {
             return;
         }
     }
-    if (tim == TIM1 || tim == TIM2 || tim == TIM3 || tim == TIM4 || tim == TIM5 || tim == TIM8 )
-    {
+
+    if (timer == TIM1 || timer == TIM2 || timer == TIM3 || timer == TIM4 || timer == TIM5 || timer == TIM8) {
         TIM_MasterConfigTypeDef sMasterConfig;
         memset(&sMasterConfig, 0, sizeof(sMasterConfig));
         sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-        if (HAL_TIMEx_MasterConfigSynchronization(&timerHandle[timerIndex], &sMasterConfig) != HAL_OK) {
+        if (HAL_TIMEx_MasterConfigSynchronization(timHandle, &sMasterConfig) != HAL_OK) {
             return;
         }
     }
-    /*
-    uint8_t timerIndex = lookupTimerIndex(timer);
-
-    if (timerIndex >= HARDWARE_TIMER_DEFINITION_COUNT) {
-        return;
-    }
-
-    if (timerHandle[timerIndex].Instance == timer)
-    {
-        // already configured
-        return;
-    }
-
-    LL_TIM_InitTypeDef init;
-    LL_TIM_StructInit(&init);
-
-    init.Prescaler = (timerClock(timer) / ((uint32_t)mhz * 1000000)) - 1;
-    init.Autoreload = (period - 1) & 0xffff;
-    
-    LL_TIM_Init(timer, &init);
-
-    LL_TIM_DisableARRPreload(timer);
-    LL_TIM_SetClockSource(timer, LL_TIM_CLOCKSOURCE_INTERNAL);
-
-    if (IS_TIM_BKIN2_INSTANCE(timer)) {
-        LL_TIM_DisableBRK2(timer);
-    }
-
-    if (IS_TIM_MASTER_INSTANCE(timer)) {
-        LL_TIM_DisableMasterSlaveMode(timer);
-    }
-
-    if (IS_TIM_BREAK_INSTANCE(timer)) {
-        LL_TIM_DisableBRK(timer);
-        LL_TIM_EnableAllOutputs(timer);
-    }
-
-    LL_TIM_EnableCounter(timer);
-
-    timerHandle[timerIndex].Instance = timer;
-    */
 }
 
-uint8_t impl_timerLookupChannelLL(uint8_t channelIndex)
+void impl_timerPWMConfigChannel(TCH_t * tch, uint16_t value)
 {
-    const uint8_t lookupTable[] = { LL_TIM_CHANNEL_CH1, LL_TIM_CHANNEL_2, LL_TIM_CHANNEL_3, LL_TIM_CHANNEL_4 };
+    const bool inverted = tch->timHw->output & TIMER_OUTPUT_INVERTED;
 
-    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
-        return lookupTable[channelIndex];
-    }
+    TIM_OC_InitTypeDef TIM_OCInitStructure;
 
-    return 0;
+    TIM_OCInitStructure.OCMode = TIM_OCMODE_PWM1;
+    TIM_OCInitStructure.OCIdleState = TIM_OCIDLESTATE_SET;
+    TIM_OCInitStructure.OCPolarity = inverted ? TIM_OCPOLARITY_LOW : TIM_OCPOLARITY_HIGH;
+    TIM_OCInitStructure.OCNIdleState = TIM_OCNIDLESTATE_SET;
+    TIM_OCInitStructure.OCNPolarity = inverted ? TIM_OCNPOLARITY_LOW : TIM_OCNPOLARITY_HIGH;
+    TIM_OCInitStructure.Pulse = value;
+    TIM_OCInitStructure.OCFastMode = TIM_OCFAST_DISABLE;
+
+    HAL_TIM_PWM_ConfigChannel(tch->timCtx->timHandle, &TIM_OCInitStructure, lookupTIMChannelTable[tch->timHw->channelIndex]);
 }
 
-void impl_timerPWMConfigChannel(TIM_TypeDef * timer, uint8_t channelIndex, bool isNChannel, bool inverted, uint16_t value)
+volatile timCCR_t * impl_timerCCR(TCH_t * tch)
 {
-    UNUSED(isNChannel);
-
-    __IO timCCR_t * ccr = impl_timerCCR(timer, channelIndex);
-    uint16_t ll_channel = impl_timerLookupChannelLL(channelIndex);
-
-    LL_TIM_OC_InitTypeDef init;
-    LL_TIM_OC_StructInit(&init);
-
-    init.OCMode = LL_TIM_OCMODE_PWM1;
-    init.OCState = LL_TIM_OCSTATE_ENABLE;
-
-    if (inverted) {
-        init.OCPolarity = LL_TIM_OCPOLARITY_HIGH;
-    }
-
-    LL_TIM_OC_Init(timer, ll_channel, &init);
-    LL_TIM_OC_DisableFast(timer, ll_channel);
-    LL_TIM_OC_EnablePreload(timer, ll_channel);
-
-    *ccr = value;
-}
-
-uint8_t impl_timerLookupChannel(uint8_t channelIndex)
-{
-    const uint8_t lookupTable[] = { TIM_CHANNEL_1, TIM_CHANNEL_2, TIM_CHANNEL_3, TIM_CHANNEL_4 };
-
-    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
-        return lookupTable[channelIndex];
-    }
-
-    return 0;
-}
-
-
-volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex)
-{
-    switch (channelIndex) {
+    switch (tch->timHw->channelIndex) {
         case 0:
-            return &tim->CCR1;
+            return &tch->timHw->tim->CCR1;
             break;
         case 1:
-            return &tim->CCR2;
+            return &tch->timHw->tim->CCR2;
             break;
         case 2:
-            return &tim->CCR3;
+            return &tch->timHw->tim->CCR3;
             break;
         case 3:
-            return &tim->CCR4;
+            return &tch->timHw->tim->CCR4;
             break;
     }
     return NULL;
 }
 
-void impl_enableTimer(TIM_TypeDef * tim)
+void impl_enableTimer(TCH_t * tch)
 {
-    TIM_HandleTypeDef * Handle = timerFindTimerHandle(tim);
-    if (Handle == NULL) {
-        return;
-    }
-
-    HAL_TIM_Base_Start(Handle);
+    HAL_TIM_Base_Start(tch->timCtx->timHandle);
 }
 
-void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channel, bool isNChannel)
+void impl_timerPWMStart(TCH_t * tch)
 {
-    TIM_HandleTypeDef * Handle = timerFindTimerHandle(tim);
-    if (Handle == NULL) {
-        return;
+    if (tch->timHw->output & TIMER_OUTPUT_N_CHANNEL) {
+        HAL_TIMEx_PWMN_Start(tch->timCtx->timHandle, lookupTIMChannelTable[tch->timHw->channelIndex]);
     }
-
-    if (isNChannel)
-        HAL_TIMEx_PWMN_Start(Handle, channel);
-    else
-        HAL_TIM_PWM_Start(Handle, channel);
+    else {
+        HAL_TIM_PWM_Start(tch->timCtx->timHandle, lookupTIMChannelTable[tch->timHw->channelIndex]);
+    }
 }
 
-void impl_timerEnableIT(TIM_TypeDef * tim, uint32_t interrupt)
+void impl_timerEnableIT(TCH_t * tch, uint32_t interrupt)
 {
-    TIM_HandleTypeDef * Handle = timerFindTimerHandle(tim);
-    if (Handle == NULL) {
-        return;
-    }
-
-    __HAL_TIM_ENABLE_IT(Handle, interrupt);
+    __HAL_TIM_ENABLE_IT(tch->timCtx->timHandle, interrupt);
 }
 
-void impl_timerDisableIT(TIM_TypeDef * tim, uint32_t interrupt)
+void impl_timerDisableIT(TCH_t * tch, uint32_t interrupt)
 {
-    TIM_HandleTypeDef * Handle = timerFindTimerHandle(tim);
-    if (Handle == NULL) {
-        return;
-    }
-
-    __HAL_TIM_DISABLE_IT(Handle, interrupt);
+    __HAL_TIM_DISABLE_IT(tch->timCtx->timHandle, interrupt);
 }
 
-void impl_timerClearFlag(TIM_TypeDef * tim, uint32_t flag)
+void impl_timerClearFlag(TCH_t * tch, uint32_t flag)
 {
-    TIM_HandleTypeDef * Handle = timerFindTimerHandle(tim);
-    if (Handle == NULL) {
-        return;
-    }
-
-    __HAL_TIM_CLEAR_FLAG(Handle, flag);
+    __HAL_TIM_CLEAR_FLAG(tch->timCtx->timHandle, flag);
 }
 
 // calculate input filter constant
@@ -264,26 +182,25 @@ static unsigned getFilter(unsigned ticks)
         16*5, 16*6, 16*8,
         32*5, 32*6, 32*8
     };
-    for (unsigned i = 1; i < ARRAYLEN(ftab); i++)
-        if (ftab[i] > ticks)
+
+    for (unsigned i = 1; i < ARRAYLEN(ftab); i++) {
+        if (ftab[i] > ticks) {
             return i - 1;
+        }
+    }
+
     return 0x0f;
 }
 
-void impl_timerChConfigIC(const timerHardware_t *timHw, bool polarityRising, unsigned inputFilterTicks)
+void impl_timerChConfigIC(TCH_t * tch, bool polarityRising, unsigned inputFilterTicks)
 {
-    TIM_HandleTypeDef * Handle = timerFindTimerHandle(timHw->tim);
-    if (Handle == NULL) {
-        return;
-    }
-
     TIM_IC_InitTypeDef TIM_ICInitStructure;
 
     TIM_ICInitStructure.ICPolarity = polarityRising ? TIM_ICPOLARITY_RISING : TIM_ICPOLARITY_FALLING;
     TIM_ICInitStructure.ICSelection = TIM_ICSELECTION_DIRECTTI;
     TIM_ICInitStructure.ICPrescaler = TIM_ICPSC_DIV1;
     TIM_ICInitStructure.ICFilter = getFilter(inputFilterTicks);
-    HAL_TIM_IC_ConfigChannel(Handle,&TIM_ICInitStructure, timHw->channel);
+    HAL_TIM_IC_ConfigChannel(tch->timCtx->timHandle, &TIM_ICInitStructure, lookupTIMChannelTable[tch->timHw->channelIndex]);
 }
 
 void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *timerCtx)
@@ -300,33 +217,33 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *tim
 
         if (timerCtx) {
             switch (bit) {
-                case __builtin_clz(TIM_IT_Update): {
+                case __builtin_clz(TIM_IT_UPDATE): {
                     const uint16_t capture = tim->ARR;
-                    if (timerCtx->ch[0].callbackOvr) {
-                        timerCtx->ch[0].callbackOvr(&timerCtx->ch[0], capture);
+                    if (timerCtx->ch[0].cb && timerCtx->ch[0].cb->callbackOvr) {
+                        timerCtx->ch[0].cb->callbackOvr(&timerCtx->ch[0], capture);
                     }
-                    if (timerCtx->ch[1].callbackOvr) {
-                        timerCtx->ch[1].callbackOvr(&timerCtx->ch[1], capture);
+                    if (timerCtx->ch[1].cb && timerCtx->ch[1].cb->callbackOvr) {
+                        timerCtx->ch[1].cb->callbackOvr(&timerCtx->ch[1], capture);
                     }
-                    if (timerCtx->ch[2].callbackOvr) {
-                        timerCtx->ch[2].callbackOvr(&timerCtx->ch[2], capture);
+                    if (timerCtx->ch[2].cb && timerCtx->ch[2].cb->callbackOvr) {
+                        timerCtx->ch[2].cb->callbackOvr(&timerCtx->ch[2], capture);
                     }
-                    if (timerCtx->ch[3].callbackOvr) {
-                        timerCtx->ch[3].callbackOvr(&timerCtx->ch[3], capture);
+                    if (timerCtx->ch[3].cb && timerCtx->ch[3].cb->callbackOvr) {
+                        timerCtx->ch[3].cb->callbackOvr(&timerCtx->ch[3], capture);
                     }
                     break;
                 }
                 case __builtin_clz(TIM_IT_CC1):
-                    timerCtx->ch[0].callbackEdge(&timerCtx->ch[0], tim->CCR1);
+                    timerCtx->ch[0].cb->callbackEdge(&timerCtx->ch[0], tim->CCR1);
                     break;
                 case __builtin_clz(TIM_IT_CC2):
-                    timerCtx->ch[1].callbackEdge(&timerCtx->ch[1], tim->CCR2);
+                    timerCtx->ch[1].cb->callbackEdge(&timerCtx->ch[1], tim->CCR2);
                     break;
                 case __builtin_clz(TIM_IT_CC3):
-                    timerCtx->ch[2].callbackEdge(&timerCtx->ch[2], tim->CCR3);
+                    timerCtx->ch[2].cb->callbackEdge(&timerCtx->ch[2], tim->CCR3);
                     break;
                 case __builtin_clz(TIM_IT_CC4):
-                    timerCtx->ch[3].callbackEdge(&timerCtx->ch[3], tim->CCR4);
+                    timerCtx->ch[3].cb->callbackEdge(&timerCtx->ch[3], tim->CCR4);
                     break;
             }
         }
@@ -357,21 +274,236 @@ void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t *tim
     }
 }
 
-uint16_t impl_timerDmaSource(uint8_t channelIndex)
-{
-    const uint16_t lookupTable[] = { TIM_DMA_ID_CC1, TIM_DMA_ID_CC2, TIM_DMA_ID_CC3, TIM_DMA_ID_CC4 };
-
-    if (channelIndex <= CC_CHANNELS_PER_TIMER) {
-        return lookupTable[channelIndex];
-    }
-
-    return 0;
-}
-
 void impl_timerChCaptureCompareEnable(TCH_t * tch, bool enable)
 {
-    const uint32_t chn = impl_timerLookupChannel(tch->timHw->channelIndex);
-    const uint32_t cmd = enable ? TIM_CCx_ENABLE : TIM_CCx_DISABLE;
+    TIM_CCxChannelCmd(tch->timHw->tim, lookupTIMChannelTable[tch->timHw->channelIndex], (enable ? TIM_CCx_ENABLE : TIM_CCx_DISABLE));
+}
 
-    TIM_CCxChannelCmd(tch->timHw->tim, chn, cmd);
+HAL_StatusTypeDef TIM_DMACmd(TIM_HandleTypeDef *htim, uint32_t Channel, FunctionalState NewState)
+{
+    switch (Channel) {
+    case TIM_CHANNEL_1: {
+        if (NewState != DISABLE) {
+            /* Enable the TIM Capture/Compare 1 DMA request */
+            __HAL_TIM_ENABLE_DMA(htim, TIM_DMA_CC1);
+        } else {
+            /* Disable the TIM Capture/Compare 1 DMA request */
+            __HAL_TIM_DISABLE_DMA(htim, TIM_DMA_CC1);
+        }
+    }
+        break;
+
+    case TIM_CHANNEL_2: {
+        if (NewState != DISABLE) {
+            /* Enable the TIM Capture/Compare 2 DMA request */
+            __HAL_TIM_ENABLE_DMA(htim, TIM_DMA_CC2);
+        } else {
+            /* Disable the TIM Capture/Compare 2 DMA request */
+            __HAL_TIM_DISABLE_DMA(htim, TIM_DMA_CC2);
+        }
+    }
+        break;
+
+    case TIM_CHANNEL_3: {
+        if (NewState != DISABLE) {
+            /* Enable the TIM Capture/Compare 3 DMA request */
+            __HAL_TIM_ENABLE_DMA(htim, TIM_DMA_CC3);
+        } else {
+            /* Disable the TIM Capture/Compare 3 DMA request */
+            __HAL_TIM_DISABLE_DMA(htim, TIM_DMA_CC3);
+        }
+    }
+        break;
+
+    case TIM_CHANNEL_4: {
+        if (NewState != DISABLE) {
+            /* Enable the TIM Capture/Compare 4 DMA request */
+            __HAL_TIM_ENABLE_DMA(htim, TIM_DMA_CC4);
+        } else {
+            /* Disable the TIM Capture/Compare 4 DMA request */
+            __HAL_TIM_DISABLE_DMA(htim, TIM_DMA_CC4);
+        }
+    }
+        break;
+
+    default:
+        break;
+    }
+    /* Change the htim state */
+    htim->State = HAL_TIM_STATE_READY;
+    /* Return function status */
+    return HAL_OK;
+}
+
+HAL_StatusTypeDef DMA_SetCurrDataCounter(TIM_HandleTypeDef *htim, uint32_t Channel, uint32_t *pData, uint16_t Length)
+{
+    if ((htim->State == HAL_TIM_STATE_BUSY)) {
+        return HAL_BUSY;
+    } else if ((htim->State == HAL_TIM_STATE_READY)) {
+        if (((uint32_t) pData == 0) && (Length > 0)) {
+            return HAL_ERROR;
+        } else {
+            htim->State = HAL_TIM_STATE_BUSY;
+        }
+    }
+    switch (Channel) {
+    case TIM_CHANNEL_1: {
+        /* Set the DMA Period elapsed callback */
+        htim->hdma[TIM_DMA_ID_CC1]->XferCpltCallback = HAL_TIM_DMADelayPulseCplt;
+
+        /* Set the DMA error callback */
+        htim->hdma[TIM_DMA_ID_CC1]->XferErrorCallback = HAL_TIM_DMAError;
+
+        /* Enable the DMA Stream */
+        HAL_DMA_Start_IT(htim->hdma[TIM_DMA_ID_CC1], (uint32_t) pData, (uint32_t) & htim->Instance->CCR1, Length);
+    }
+        break;
+
+    case TIM_CHANNEL_2: {
+        /* Set the DMA Period elapsed callback */
+        htim->hdma[TIM_DMA_ID_CC2]->XferCpltCallback = HAL_TIM_DMADelayPulseCplt;
+
+        /* Set the DMA error callback */
+        htim->hdma[TIM_DMA_ID_CC2]->XferErrorCallback = HAL_TIM_DMAError;
+
+        /* Enable the DMA Stream */
+        HAL_DMA_Start_IT(htim->hdma[TIM_DMA_ID_CC2], (uint32_t) pData, (uint32_t) & htim->Instance->CCR2, Length);
+    }
+        break;
+
+    case TIM_CHANNEL_3: {
+        /* Set the DMA Period elapsed callback */
+        htim->hdma[TIM_DMA_ID_CC3]->XferCpltCallback = HAL_TIM_DMADelayPulseCplt;
+
+        /* Set the DMA error callback */
+        htim->hdma[TIM_DMA_ID_CC3]->XferErrorCallback = HAL_TIM_DMAError;
+
+        /* Enable the DMA Stream */
+        HAL_DMA_Start_IT(htim->hdma[TIM_DMA_ID_CC3], (uint32_t) pData, (uint32_t) & htim->Instance->CCR3, Length);
+    }
+        break;
+
+    case TIM_CHANNEL_4: {
+        /* Set the DMA Period elapsed callback */
+        htim->hdma[TIM_DMA_ID_CC4]->XferCpltCallback = HAL_TIM_DMADelayPulseCplt;
+
+        /* Set the DMA error callback */
+        htim->hdma[TIM_DMA_ID_CC4]->XferErrorCallback = HAL_TIM_DMAError;
+
+        /* Enable the DMA Stream */
+        HAL_DMA_Start_IT(htim->hdma[TIM_DMA_ID_CC4], (uint32_t) pData, (uint32_t) & htim->Instance->CCR4, Length);
+    }
+        break;
+
+    default:
+        break;
+    }
+    /* Return function status */
+    return HAL_OK;
+}
+
+static void impl_timerDMA_IRQHandler(DMA_t descriptor)
+{
+    TCH_t * tch = (TCH_t *)descriptor->userParam;
+    TIM_HandleTypeDef * timHandle = tch->timCtx->timHandle;
+    uint16_t timerDmaIndex = lookupDMAIndexTable[tch->timHw->channelIndex];
+
+    HAL_DMA_IRQHandler(timHandle->hdma[timerDmaIndex]);
+
+    if (tch->timHw->output & TIMER_OUTPUT_N_CHANNEL) {
+        HAL_TIMEx_PWMN_Stop_DMA(timHandle, lookupTIMChannelTable[tch->timHw->channelIndex]);
+    } else {
+        HAL_TIM_PWM_Stop_DMA(timHandle, lookupTIMChannelTable[tch->timHw->channelIndex]);
+    }
+
+    tch->dmaState = TCH_DMA_IDLE;
+}
+
+bool impl_timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBufferSize)
+{
+    (void)dmaBufferSize;
+
+    tch->dma = dmaGetByTag(tch->timHw->dmaTag);
+    tch->dmaBuffer = dmaBuffer;
+    if (tch->dma == NULL) {
+        return false;
+    }
+
+    // We assume that timer channels are already initialized by calls to:
+    //  timerConfigBase
+    //  timerPWMConfigChannel
+
+    TIM_HandleTypeDef * timHandle = tch->timCtx->timHandle;
+    DMA_HandleTypeDef * hdma_tim = &tch->dma->hdma;
+
+    /* Set the parameters to be configured */
+    hdma_tim->Instance = tch->dma->ref;
+    hdma_tim->Init.Channel = dmaGetChannelByTag(tch->timHw->dmaTag);
+
+    hdma_tim->Init.Direction = DMA_MEMORY_TO_PERIPH;
+    hdma_tim->Init.PeriphInc = DMA_PINC_DISABLE;
+    hdma_tim->Init.MemInc = DMA_MINC_ENABLE;
+    hdma_tim->Init.PeriphDataAlignment = DMA_PDATAALIGN_WORD;
+    hdma_tim->Init.MemDataAlignment = DMA_MDATAALIGN_WORD;
+    hdma_tim->Init.Mode = DMA_NORMAL;
+    hdma_tim->Init.Priority = DMA_PRIORITY_HIGH;
+    hdma_tim->Init.FIFOMode = DMA_FIFOMODE_DISABLE;
+    hdma_tim->Init.FIFOThreshold = DMA_FIFO_THRESHOLD_FULL;
+    hdma_tim->Init.MemBurst = DMA_MBURST_SINGLE;
+    hdma_tim->Init.PeriphBurst = DMA_PBURST_SINGLE;
+
+    /* Link hdma_tim to hdma[x] (channelx) */
+    int dmaIndex = lookupDMAIndexTable[tch->timHw->channelIndex];
+    __HAL_LINKDMA(timHandle, hdma[dmaIndex], *hdma_tim);
+
+    dmaInit(tch->dma, OWNER_TIMER, 0);
+    dmaSetHandler(tch->dma, impl_timerDMA_IRQHandler, NVIC_PRIO_WS2811_DMA, (uint32_t)tch);
+
+    /* Initialize TIMx DMA handle */
+    HAL_DMA_Init(timHandle->hdma[dmaIndex]);
+
+    return true;
+}
+
+void impl_timerPWMPrepareDMA(TCH_t * tch, uint32_t dmaBufferSize)
+{
+    tch->dmaState = TCH_DMA_READY;
+    DMA_SetCurrDataCounter(tch->timCtx->timHandle, lookupTIMChannelTable[tch->timHw->channelIndex], tch->dmaBuffer, dmaBufferSize);
+}
+
+void impl_timerPWMStartDMA(TCH_t * tch)
+{
+    uint16_t dmaSources = 0;
+    timHardwareContext_t * timCtx = tch->timCtx;
+
+    if (timCtx->ch[0].dmaState == TCH_DMA_READY) {
+        timCtx->ch[0].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC1;
+    }
+
+    if (timCtx->ch[1].dmaState == TCH_DMA_READY) {
+        timCtx->ch[1].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC2;
+    }
+
+    if (timCtx->ch[2].dmaState == TCH_DMA_READY) {
+        timCtx->ch[2].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC3;
+    }
+
+    if (timCtx->ch[3].dmaState == TCH_DMA_READY) {
+        timCtx->ch[3].dmaState = TCH_DMA_ACTIVE;
+        dmaSources |= TIM_DMA_CC4;
+    }
+
+    if (dmaSources) {
+        LL_TIM_SetCounter(tch->timHw->tim, 0);
+        tch->timHw->tim->DIER |= dmaSources;
+    }
+}
+
+void impl_timerPWMStopDMA(TCH_t * tch)
+{
+    (void)tch;
+    // FIXME
 }

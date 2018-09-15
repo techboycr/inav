@@ -19,10 +19,10 @@
 
 #if defined(USE_HAL_DRIVER)
 #  define IMPL_TIM_IT_UPDATE_INTERRUPT      TIM_IT_UPDATE
-#  define TIM_IT_CCx(ch)                    (TIM_IT_CC1 << ((ch) / 4))
+#  define TIM_IT_CCx(chIdx)                 (TIM_IT_CC1 << (chIdx))
 #else
 #  define IMPL_TIM_IT_UPDATE_INTERRUPT      TIM_IT_Update
-#  define TIM_IT_CCx(ch)                    (TIM_IT_CC1 << ((ch) / 4))
+#  define TIM_IT_CCx(chIdx)                 (TIM_IT_CC1 << (chIdx))
 #endif
 
 #define _TIM_IRQ_HANDLER2(name, i, j)                                   \
@@ -39,20 +39,22 @@
     } struct dummy
 
 uint8_t lookupTimerIndex(const TIM_TypeDef *tim);
-uint8_t impl_timerLookupChannel(uint8_t channelIndex);
-void impl_timerNVICConfigure(uint8_t irq, int irqPriority);
-void impl_timerConfigBase(TIM_TypeDef *tim, uint16_t period, uint8_t mhz);
-void impl_enableTimer(TIM_TypeDef * tim);
-void impl_timerEnableIT(TIM_TypeDef * tim, uint32_t interrupt);
-void impl_timerDisableIT(TIM_TypeDef * tim, uint32_t interrupt);
-void impl_timerClearFlag(TIM_TypeDef * tim, uint32_t flag);
-void impl_timerChConfigIC(const timerHardware_t *timHw, bool polarityRising, unsigned inputFilterTicks);
+void impl_timerInitContext(timHardwareContext_t * timCtx);
+
+volatile timCCR_t * impl_timerCCR(TCH_t * tch);
 void impl_timerCaptureCompareHandler(TIM_TypeDef *tim, timHardwareContext_t * timerCtx);
-void impl_timerPWMConfigChannel(TIM_TypeDef * tim, uint8_t channelIndex, bool isNChannel, bool inverted, uint16_t value);
-void impl_timerPWMStart(TIM_TypeDef * tim, unsigned channelIndex, bool isNChannel);
-uint16_t impl_timerDmaSource(uint8_t channelIndex);
-volatile timCCR_t * impl_timerCCR(TIM_TypeDef *tim, uint8_t channelIndex);
+
+void impl_timerNVICConfigure(TCH_t * tch, int irqPriority);
+void impl_timerConfigBase(TCH_t * tch, uint16_t period, uint8_t mhz);
+void impl_enableTimer(TCH_t * tch);
+void impl_timerEnableIT(TCH_t * tch, uint32_t interrupt);
+void impl_timerDisableIT(TCH_t * tch, uint32_t interrupt);
+void impl_timerClearFlag(TCH_t * tch, uint32_t flag);
+void impl_timerChConfigIC(TCH_t * tch, bool polarityRising, unsigned inputFilterTicks);
 void impl_timerChCaptureCompareEnable(TCH_t * tch, bool enable);
+
+void impl_timerPWMConfigChannel(TCH_t * tch, uint16_t value);
+void impl_timerPWMStart(TCH_t * tch);
 bool impl_timerPWMConfigChannelDMA(TCH_t * tch, void * dmaBuffer, uint32_t dmaBufferSize);
 void impl_timerPWMPrepareDMA(TCH_t * tch, uint32_t dmaBufferSize);
 void impl_timerPWMStartDMA(TCH_t * tch);
